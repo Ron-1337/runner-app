@@ -205,6 +205,7 @@ Future<FakeComputer> open(
       child: MaterialApp(
         home: ComputerPage(
           account: Account(
+            id: 'a1',
             origin: 'https://r.example',
             credential: 'c',
             username: 'alice',

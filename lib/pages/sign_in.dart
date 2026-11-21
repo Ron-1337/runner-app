@@ -3,34 +3,29 @@ import 'dart:async';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../core/store.dart';
+import '../core/links.dart';
 import '../services.dart';
 import 'computers.dart';
 
-/// Mirrors Runner's rule: HTTPS only, except plain HTTP on localhost for testing.
-String? validateOrigin(String input) {
-  final uri = Uri.tryParse(input.trim());
-  if (uri == null || uri.host.isEmpty) {
-    return '请输入完整地址，例如 https://runner.example.com';
-  }
-  if (uri.scheme == 'https') return null;
-  if (uri.scheme == 'http' &&
-      (uri.host == 'localhost' || uri.host == '127.0.0.1')) {
-    return null;
-  }
-  return '只支持 HTTPS 地址';
-}
+export '../core/links.dart' show validateOrigin;
 
-/// First screen: the runner-server origin to sign in to.
+/// The runner-server origin to sign in to: the first screen, and how another
+/// account is added.
 class ServerPage extends StatefulWidget {
-  const ServerPage({super.key});
+  const ServerPage({super.key, this.initialOrigin, this.notice});
+
+  /// Fills in the address, from a link or to sign in again.
+  final String? initialOrigin;
+
+  /// Why signing in is asked for, shown above the address.
+  final String? notice;
 
   @override
   State<ServerPage> createState() => _ServerPageState();
 }
 
 class _ServerPageState extends State<ServerPage> {
-  final _origin = TextEditingController();
+  late final _origin = TextEditingController(text: widget.initialOrigin);
   String? _error;
   var _busy = false;
 
@@ -67,13 +62,18 @@ class _ServerPageState extends State<ServerPage> {
 
   @override
   Widget build(BuildContext context) {
+    final adding = Navigator.canPop(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Runner Remote')),
+      appBar: AppBar(title: Text(adding ? '添加账户' : 'Runner Remote')),
       body: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (widget.notice != null) ...[
+              Text(widget.notice!),
+              const SizedBox(height: 16),
+            ],
             TextField(
               key: const Key('origin'),
               controller: _origin,
@@ -154,7 +154,7 @@ class _EnrollPageState extends State<EnrollPage> {
       switch (result['state']) {
         case 'ENROLLMENT_STATE_APPROVED':
           _timer?.cancel();
-          final account = Account(
+          await services.store.addAccount(
             origin: widget.origin,
             credential: result['credential'] as String,
             username:
@@ -162,12 +162,9 @@ class _EnrollPageState extends State<EnrollPage> {
                     as String? ??
                 '',
           );
-          await services.store.saveAccount(account);
           if (!mounted) return;
           await Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute<void>(
-              builder: (_) => ComputersPage(account: account),
-            ),
+            MaterialPageRoute<void>(builder: (_) => const ComputersPage()),
             (_) => false,
           );
         case 'ENROLLMENT_STATE_DENIED':

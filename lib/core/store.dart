@@ -1,30 +1,69 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-/// This phone's sign-in to a runner-server.
+/// One sign-in of this phone to a runner-server. The phone can hold several,
+/// on the same server or on different ones.
 class Account {
   Account({
+    required this.id,
     required this.origin,
     required this.credential,
     required this.username,
   });
 
+  /// Stable for the life of the account on this phone; its pairings are kept under it.
+  final String id;
   final String origin;
   final String credential;
   final String username;
 
+  /// The server's host, for telling accounts apart.
+  String get host {
+    final uri = Uri.tryParse(origin);
+    if (uri == null || uri.host.isEmpty) return origin;
+    return uri.hasPort ? '${uri.host}:${uri.port}' : uri.host;
+  }
+
+  /// `alice@runner.example.com`, or just the host before the server named the user.
+  String get label => username.isEmpty ? host : '$username@$host';
+
+  /// Whether signing in as [username] on [origin] is this account again.
+  bool sameAs(String origin, String username) =>
+      sameOrigin(this.origin, origin) && this.username == username;
+
+  Account copyWith({String? credential}) => Account(
+    id: id,
+    origin: origin,
+    credential: credential ?? this.credential,
+    username: username,
+  );
+
   Map<String, Object?> toJson() => {
+    'id': id,
     'origin': origin,
     'credential': credential,
     'username': username,
   };
 
   static Account fromJson(Map<String, dynamic> json) => Account(
+    id: json['id'] as String,
     origin: json['origin'] as String,
     credential: json['credential'] as String,
     username: json['username'] as String? ?? '',
   );
+}
+
+/// Whether two origins name the same server, ignoring case and a trailing slash.
+bool sameOrigin(String a, String b) => _normal(a) == _normal(b);
+
+String _normal(String origin) {
+  var text = origin.trim().toLowerCase();
+  while (text.endsWith('/')) {
+    text = text.substring(0, text.length - 1);
+  }
+  return text;
 }
 
 /// The keys from pairing with one computer: this phone's private key for it and
@@ -54,35 +93,119 @@ class Pairing {
 }
 
 /// Secrets live in the Keychain on iOS and in Keystore-encrypted storage on Android.
+///
+/// `accounts` holds the list of accounts; each pairing is under
+/// `pairings.<account id>.<computer id>`. Before several accounts, a single
+/// `account` and `pairing.<computer id>` were stored; [accounts] moves them over.
 class Store {
   Store([FlutterSecureStorage? storage])
     : _storage = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _storage;
-  static const _account = 'account';
-  static String _pairing(String computer) => 'pairing.$computer';
+  static const _accounts = 'accounts';
+  static const _legacyAccount = 'account';
+  static const _legacyPairing = 'pairing.';
+  static String _pairings(String account) => 'pairings.$account.';
+  static String _pairing(String account, String computer) =>
+      '${_pairings(account)}$computer';
 
-  Future<Account?> account() async {
-    final text = await _storage.read(key: _account);
-    return text == null ? null : Account.fromJson(jsonDecode(text));
+  /// Every account, in the order they were added.
+  Future<List<Account>> accounts() async {
+    final text = await _storage.read(key: _accounts);
+    if (text != null) {
+      return [
+        for (final json in jsonDecode(text) as List)
+          Account.fromJson(json as Map<String, dynamic>),
+      ];
+    }
+    return _migrate();
   }
 
-  Future<void> saveAccount(Account account) =>
-      _storage.write(key: _account, value: jsonEncode(account.toJson()));
+  Future<Account?> account(String id) async {
+    for (final account in await accounts()) {
+      if (account.id == id) return account;
+    }
+    return null;
+  }
 
-  /// Signing out forgets the account and every pairing made under it.
-  Future<void> signOut() => _storage.deleteAll();
+  Future<List<Account>> _migrate() async {
+    final legacy = await _storage.read(key: _legacyAccount);
+    if (legacy == null) return [];
+    final json = jsonDecode(legacy) as Map<String, dynamic>;
+    final account = Account.fromJson({...json, 'id': newId()});
+    final all = await _storage.readAll();
+    for (final MapEntry(:key, :value) in all.entries) {
+      if (!key.startsWith(_legacyPairing)) continue;
+      final computer = key.substring(_legacyPairing.length);
+      await _storage.write(key: _pairing(account.id, computer), value: value);
+      await _storage.delete(key: key);
+    }
+    await _write([account]);
+    await _storage.delete(key: _legacyAccount);
+    return [account];
+  }
 
-  Future<Pairing?> pairing(String computer) async {
-    final text = await _storage.read(key: _pairing(computer));
+  Future<void> _write(List<Account> accounts) => _storage.write(
+    key: _accounts,
+    value: jsonEncode([for (final a in accounts) a.toJson()]),
+  );
+
+  /// Saves a new sign-in. Signing in again as the same user on the same server
+  /// replaces that account's credential and keeps its pairings.
+  Future<Account> addAccount({
+    required String origin,
+    required String credential,
+    required String username,
+  }) async {
+    final all = await accounts();
+    final index = all.indexWhere((a) => a.sameAs(origin, username));
+    final Account account;
+    if (index >= 0) {
+      account = all[index].copyWith(credential: credential);
+      all[index] = account;
+    } else {
+      account = Account(
+        id: newId(),
+        origin: origin,
+        credential: credential,
+        username: username,
+      );
+      all.add(account);
+    }
+    await _write(all);
+    return account;
+  }
+
+  /// Forgets [account] and every pairing made under it; other accounts stay.
+  Future<void> removeAccount(Account account) async {
+    final all = await accounts();
+    all.removeWhere((a) => a.id == account.id);
+    await _write(all);
+    final prefix = _pairings(account.id);
+    for (final key in (await _storage.readAll()).keys) {
+      if (key.startsWith(prefix)) await _storage.delete(key: key);
+    }
+  }
+
+  Future<Pairing?> pairing(Account account, String computer) async {
+    final text = await _storage.read(key: _pairing(account.id, computer));
     return text == null ? null : Pairing.fromJson(jsonDecode(text));
   }
 
-  Future<void> savePairing(String computer, Pairing pairing) => _storage.write(
-    key: _pairing(computer),
-    value: jsonEncode(pairing.toJson()),
-  );
+  Future<void> savePairing(Account account, String computer, Pairing pairing) =>
+      _storage.write(
+        key: _pairing(account.id, computer),
+        value: jsonEncode(pairing.toJson()),
+      );
 
-  Future<void> forgetPairing(String computer) =>
-      _storage.delete(key: _pairing(computer));
+  Future<void> forgetPairing(Account account, String computer) =>
+      _storage.delete(key: _pairing(account.id, computer));
 }
+
+final _random = Random.secure();
+
+/// A random account id: 16 hex digits, no dots, so it is safe in storage keys.
+String newId() => [
+  for (var i = 0; i < 8; i++)
+    _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+].join();

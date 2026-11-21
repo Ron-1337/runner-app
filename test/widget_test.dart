@@ -147,7 +147,9 @@ void main() {
     core.approved = true;
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
-    expect((await store.account())!.credential, 'rhc_secret');
+    final account = (await store.accounts()).single;
+    expect(account.credential, 'rhc_secret');
+    expect(find.text('alice@runner.example.com'), findsOneWidget);
 
     // Pair: a wrong PIN is reported, the right one opens the computer.
     expect(find.text('studio'), findsOneWidget);
@@ -159,14 +161,14 @@ void main() {
     expect(find.text('PIN 不正确'), findsOneWidget);
     await tester.pump(const Duration(seconds: 5)); // Let the snackbar expire.
     await tester.pumpAndSettle();
-    expect(await store.pairing('42'), isNull);
+    expect(await store.pairing(account, '42'), isNull);
 
     await tester.tap(find.text('studio'));
     await openDialog(tester);
     await tester.enterText(find.byKey(const Key('pin')), '482917');
     await tester.tap(find.text('配对'));
     await tester.pumpAndSettle();
-    final pairing = (await store.pairing('42'))!;
+    final pairing = (await store.pairing(account, '42'))!;
     expect(pairing.hostKey, 'host');
     expect(pairing.fingerprint, 'aaaa bbbb cccc dddd eeee');
     expect(find.text('Fix the build'), findsOneWidget);

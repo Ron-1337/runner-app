@@ -17,11 +17,15 @@ class ComputerPage extends StatefulWidget {
     required this.account,
     required this.computer,
     required this.remote,
+    this.session,
   });
 
   final Account account;
   final Map<String, dynamic> computer;
   final Remote remote;
+
+  /// A session to open once the overview arrives, as from a notification.
+  final String? session;
 
   @override
   State<ComputerPage> createState() => _ComputerPageState();
@@ -33,6 +37,9 @@ class _ComputerPageState extends State<ComputerPage> {
   var _wasConnected = true;
 
   Remote get _remote => widget.remote;
+
+  /// [ComputerPage.session] until it has been opened.
+  late String? _pendingSession = widget.session;
 
   @override
   void initState() {
@@ -61,10 +68,25 @@ class _ComputerPageState extends State<ComputerPage> {
   Future<void> _refresh() async {
     try {
       final overview = await _remote.request('overview');
-      if (mounted) setState(() => _overview = overview as Map<String, dynamic>);
+      if (!mounted) return;
+      setState(() => _overview = overview as Map<String, dynamic>);
+      _openPending();
     } catch (e) {
       if (mounted && _remote.connected) showError(context, e);
     }
+  }
+
+  void _openPending() {
+    final id = _pendingSession;
+    if (id == null) return;
+    _pendingSession = null;
+    final sessions = _overview?['sessions'] as Map<String, dynamic>?;
+    final session = sessions?[id] as Map<String, dynamic>?;
+    if (session == null) {
+      showMessage(context, '这个会话已不在电脑上');
+      return;
+    }
+    unawaited(_openSession(id, session));
   }
 
   void _onEvent(RouteEvent event) {
