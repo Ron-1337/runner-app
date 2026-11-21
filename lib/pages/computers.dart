@@ -5,10 +5,13 @@ import '../core/remote.dart';
 import '../core/store.dart';
 import '../services.dart';
 import 'computer.dart';
+import 'dashboard.dart';
+import 'settings.dart';
 import 'sign_in.dart';
 
-/// Every account's computers, as runner-server lists them to this phone,
-/// grouped by account.
+/// The home page: every account's computers, as runner-server lists them to
+/// this phone and grouped by account, with a dashboard and the settings in
+/// the tabs beside them.
 class ComputersPage extends StatefulWidget {
   const ComputersPage({super.key});
 
@@ -23,6 +26,9 @@ class _ComputersPageState extends State<ComputersPage> {
 
   /// `<account id>/<computer id>` while that computer is connecting.
   String? _opening;
+
+  /// The tab shown: computers, dashboard or settings.
+  var _tab = 0;
 
   @override
   void didChangeDependencies() {
@@ -116,22 +122,31 @@ class _ComputersPageState extends State<ComputersPage> {
     await _load();
   }
 
+  Future<void> _openSession(
+    Account account,
+    Map<String, dynamic> computer,
+    String session,
+  ) async {
+    await openComputer(context, account, computer, session: session);
+  }
+
   @override
   Widget build(BuildContext context) {
     final accounts = _accounts;
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('我的电脑'),
-        actions: [
-          IconButton(
-            key: const Key('addAccount'),
-            tooltip: '添加账户',
-            icon: const Icon(Icons.person_add_alt),
-            onPressed: _addAccount,
-          ),
-        ],
+    final body = switch (_tab) {
+      1 when accounts != null => DashboardView(
+        accounts: accounts,
+        computers: Map.of(_computers),
+        onOpenSession: _openSession,
+        onRefreshComputers: () => Future.wait(accounts.map(_loadAccount)),
       ),
-      body: RefreshIndicator(
+      2 when accounts != null => SettingsView(
+        accounts: accounts,
+        onAddAccount: _addAccount,
+        onSignInAgain: (account) => _addAccount(account.origin),
+        onSignOut: _signOut,
+      ),
+      _ => RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
           children: [
@@ -144,6 +159,45 @@ class _ComputersPageState extends State<ComputersPage> {
               ..._section(account),
           ],
         ),
+      ),
+    };
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(const ['我的电脑', '仪表盘', '设置'][_tab]),
+        actions: [
+          if (_tab == 0)
+            IconButton(
+              key: const Key('addAccount'),
+              tooltip: '添加账户',
+              icon: const Icon(Icons.person_add_alt),
+              onPressed: _addAccount,
+            ),
+        ],
+      ),
+      body: body,
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (tab) => setState(() => _tab = tab),
+        destinations: const [
+          NavigationDestination(
+            key: Key('tabComputers'),
+            icon: Icon(Icons.computer_outlined),
+            selectedIcon: Icon(Icons.computer),
+            label: '电脑',
+          ),
+          NavigationDestination(
+            key: Key('tabDashboard'),
+            icon: Icon(Icons.space_dashboard_outlined),
+            selectedIcon: Icon(Icons.space_dashboard),
+            label: '仪表盘',
+          ),
+          NavigationDestination(
+            key: Key('tabSettings'),
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: '设置',
+          ),
+        ],
       ),
     );
   }

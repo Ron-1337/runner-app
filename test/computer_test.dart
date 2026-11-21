@@ -628,7 +628,7 @@ void main() {
     expect(find.byKey(const Key('composing')), findsNothing);
     expect(typed(), ['你好']);
 
-    // Backspace and Enter from the keyboard.
+    // Backspace and return from the keyboard.
     input.updateEditingValue(
       const TextEditingValue(
         text: ' ',
@@ -642,7 +642,7 @@ void main() {
       ),
     );
     await tester.pump();
-    expect(typed(), ['你好', '\x7f', '\r']);
+    expect(typed(), ['你好', '\x7f', '\n'], reason: 'return starts a new line');
     final config = input.setClientArgs!['inputType'] as Map;
     expect(config['name'], 'TextInputType.multiline');
     expect(

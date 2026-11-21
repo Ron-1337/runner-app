@@ -53,6 +53,10 @@ class _TerminalPageState extends State<TerminalPage> {
   double _fontSize = defaultFontSize;
   var _loadedFontSize = false;
 
+  /// Whether the phone keyboard's return key sends; otherwise it starts a new
+  /// line (Ctrl+J, which Claude Code and shells both take that way).
+  var _enterSends = false;
+
   /// Held for the next key: on the key bar, then cleared once a key uses them.
   var _ctrl = false;
   var _alt = false;
@@ -96,9 +100,11 @@ class _TerminalPageState extends State<TerminalPage> {
     super.didChangeDependencies();
     if (_loadedFontSize) return;
     _loadedFontSize = true;
-    Services.of(context).store.terminalFontSize().then((size) {
+    final store = Services.of(context).store;
+    store.terminalFontSize().then((size) {
       if (mounted && size != null) setState(() => _fontSize = size);
     });
+    store.keyboardEnterSends().then((sends) => _enterSends = sends);
   }
 
   void _setFontSize(double size) {
@@ -307,7 +313,10 @@ class _TerminalPageState extends State<TerminalPage> {
                 readOnly: !_live || _controllerKind != 'you',
                 onText: _terminal.textInput,
                 onBackspace: () => _terminal.keyInput(TerminalKey.backspace),
-                onEnter: () => _terminal.keyInput(TerminalKey.enter),
+                // The key bar's Enter always sends.
+                onEnter: () => _enterSends
+                    ? _terminal.keyInput(TerminalKey.enter)
+                    : _type('\n'),
                 onComposing: (text) {
                   if (text != _composing && mounted) {
                     setState(() => _composing = text);
@@ -499,15 +508,15 @@ const defaultFontSize = 13.0;
 /// The effort slider's track inset; the stop labels line up with it.
 const _sliderInset = 24.0;
 
-/// A few words on what an effort level is for.
+/// An effort level's Chinese name, shown under its stop.
 String effortHint(String effort) => switch (effort) {
   'none' => '不思考',
-  'minimal' => '最快',
-  'low' => '快速',
-  'medium' => '均衡',
-  'high' => '深入',
-  'xhigh' => '更深入',
-  'max' => '最深入',
+  'minimal' => '最低',
+  'low' => '低',
+  'medium' => '中',
+  'high' => '高',
+  'xhigh' => '超高',
+  'max' => '最高',
   _ => '',
 };
 const minFontSize = 8.0;

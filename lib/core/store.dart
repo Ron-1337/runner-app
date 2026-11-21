@@ -210,6 +210,16 @@ class Store {
 
   Future<void> setTerminalFontSize(double size) =>
       _storage.write(key: _fontSize, value: '$size');
+
+  static const _enterSends = 'keyboardEnterSends';
+
+  /// Whether the phone keyboard's return key sends (Enter) rather than
+  /// starting a new line; a new line by default.
+  Future<bool> keyboardEnterSends() async =>
+      await _storage.read(key: _enterSends) == 'true';
+
+  Future<void> setKeyboardEnterSends(bool sends) =>
+      _storage.write(key: _enterSends, value: '$sends');
 }
 
 final _random = Random.secure();
