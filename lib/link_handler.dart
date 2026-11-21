@@ -107,9 +107,7 @@ class _LinkHandlerState extends State<LinkHandler> {
         navigator.popUntil((route) => route.isFirst);
         if (computer == null) return;
         // Not awaited: it lasts as long as the computer stays open.
-        unawaited(
-          openComputerById(page, account, computer, session: session),
-        );
+        unawaited(openComputerById(page, account, computer, session: session));
     }
   }
 

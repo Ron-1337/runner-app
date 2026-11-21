@@ -96,7 +96,9 @@ void main() {
       reason: 'no server',
     );
     final list =
-        AppLink.parse(Uri.parse('runner-remote://open?server=https://r.example'))
+        AppLink.parse(
+              Uri.parse('runner-remote://open?server=https://r.example'),
+            )
             as OpenComputerLink;
     expect(list.computer, isNull);
     final notified =
@@ -161,9 +163,7 @@ void main() {
     expect((await store.accounts()).single.username, 'bob');
   });
 
-  testWidgets('a link fills in the server for another account', (
-    tester,
-  ) async {
+  testWidgets('a link fills in the server for another account', (tester) async {
     final (store, _, _) = await twoAccounts();
     final links = StreamController<Uri>();
     addTearDown(links.close);

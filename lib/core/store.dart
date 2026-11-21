@@ -133,8 +133,9 @@ class Store {
     if (legacy == null) return [];
     final json = jsonDecode(legacy) as Map<String, dynamic>;
     final account = Account.fromJson({...json, 'id': newId()});
-    final all = await _storage.readAll();
-    for (final MapEntry(:key, :value) in all.entries) {
+    // A copy: the loop deletes from the storage readAll may hand back.
+    final all = (await _storage.readAll()).entries.toList();
+    for (final MapEntry(:key, :value) in all) {
       if (!key.startsWith(_legacyPairing)) continue;
       final computer = key.substring(_legacyPairing.length);
       await _storage.write(key: _pairing(account.id, computer), value: value);
@@ -182,7 +183,7 @@ class Store {
     all.removeWhere((a) => a.id == account.id);
     await _write(all);
     final prefix = _pairings(account.id);
-    for (final key in (await _storage.readAll()).keys) {
+    for (final key in (await _storage.readAll()).keys.toList()) {
       if (key.startsWith(prefix)) await _storage.delete(key: key);
     }
   }
