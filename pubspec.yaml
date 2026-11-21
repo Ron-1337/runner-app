@@ -22,3 +22,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  # The terminal font, as in desktop Runner (SIL OFL 1.1, see assets/fonts/).
+  fonts:
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf
+        - asset: assets/fonts/JetBrainsMonoNerdFontMono-Bold.ttf
+          weight: 700

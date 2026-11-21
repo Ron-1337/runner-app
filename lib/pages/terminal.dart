@@ -5,21 +5,23 @@ import 'package:material_ui/material_ui.dart';
 import 'package:xterm/xterm.dart';
 
 import '../core/core.dart';
+import '../core/remote.dart';
 import '../services.dart';
 
 /// A live terminal of a session on the computer.
 ///
 /// Opening it takes control of the terminal at this screen's size, as the desktop's
 /// remote window does; the host desktop shows a card with Take back meanwhile.
+/// After a reconnect it attaches again if no one else took the terminal meanwhile.
 class TerminalPage extends StatefulWidget {
   const TerminalPage({
     super.key,
-    required this.route,
+    required this.remote,
     required this.session,
     required this.title,
   });
 
-  final int route;
+  final Remote remote;
   final String session;
   final String title;
 
@@ -30,8 +32,8 @@ class TerminalPage extends StatefulWidget {
 class _TerminalPageState extends State<TerminalPage> {
   final _terminal = Terminal(maxLines: 10000);
   final _controller = TerminalController();
-  late Core _core;
   StreamSubscription<RouteEvent>? _events;
+  var _wasConnected = true;
   late final ByteConversionSink _decoder;
 
   (int, int)? _size;
@@ -51,48 +53,58 @@ class _TerminalPageState extends State<TerminalPage> {
     ).startChunkedConversion(_TerminalSink(_terminal));
     _terminal.onOutput = _input;
     _terminal.onResize = (cols, rows, _, _) => _resized(cols, rows);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_events != null) return;
-    _core = Services.of(context).core;
-    _events = _core.routeEvents
-        .where((e) => e.route == widget.route)
-        .listen(_onEvent);
+    _events = widget.remote.pushes.listen(_onEvent);
+    widget.remote.addListener(_onState);
   }
 
   @override
   void dispose() {
     _events?.cancel();
-    if (_attached && _ended == null) {
+    widget.remote.removeListener(_onState);
+    if (_attached && _ended == null && widget.remote.connected) {
       _send({'type': 'detach', 'session': widget.session});
     }
     _controller.dispose();
     super.dispose();
   }
 
+  void _onState() {
+    if (!mounted) return;
+    setState(() {});
+    final size = _size;
+    if (widget.remote.connected && !_wasConnected && size != null) {
+      _attach(size, 'ifFree');
+    }
+    _wasConnected = widget.remote.connected;
+  }
+
+  bool get _live => _ended == null && widget.remote.connected;
+
   Future<void> _send(Map<String, Object?> message) async {
     try {
-      await _core.request(widget.route, message);
+      await widget.remote.core.request(widget.remote.route, message);
     } catch (e) {
-      if (mounted && _ended == null) showError(context, e);
+      if (mounted && _live) showError(context, e);
     }
+  }
+
+  void _attach((int, int) size, String control) {
+    _send({
+      'type': 'attach',
+      'session': widget.session,
+      'cols': size.$1,
+      'rows': size.$2,
+      'control': control,
+      'history': 1000,
+    });
   }
 
   void _resized(int cols, int rows) {
     _size = (cols, rows);
+    if (!widget.remote.connected) return;
     if (!_attached) {
       _attached = true;
-      _send({
-        'type': 'attach',
-        'session': widget.session,
-        'cols': cols,
-        'rows': rows,
-        'control': 'take',
-        'history': 1000,
-      });
+      _attach((cols, rows), 'take');
     } else if (_controllerKind == 'you') {
       _send({
         'type': 'viewport',
@@ -115,7 +127,7 @@ class _TerminalPageState extends State<TerminalPage> {
   }
 
   void _input(String data) {
-    if (_ended != null || _controllerKind != 'you') return;
+    if (!_live || _controllerKind != 'you') return;
     _send({
       'type': 'input',
       'session': widget.session,
@@ -124,10 +136,6 @@ class _TerminalPageState extends State<TerminalPage> {
   }
 
   void _onEvent(RouteEvent event) {
-    if (event.closed) {
-      setState(() => _ended = '连接已断开：${event.error ?? '连接已关闭'}');
-      return;
-    }
     final message = event.message!;
     if (message['session'] != widget.session) return;
     switch (event.type) {
@@ -152,12 +160,14 @@ class _TerminalPageState extends State<TerminalPage> {
 
   @override
   Widget build(BuildContext context) {
-    final banner = _ended ?? _controlBanner();
+    final reconnecting = _ended == null && !widget.remote.connected;
+    final banner = reconnecting ? null : _ended ?? _controlBanner();
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: SafeArea(
         child: Column(
           children: [
+            if (reconnecting) ReconnectBanner(remote: widget.remote),
             if (banner != null)
               MaterialBanner(
                 content: Text(banner),
@@ -176,12 +186,16 @@ class _TerminalPageState extends State<TerminalPage> {
                 _terminal,
                 controller: _controller,
                 autofocus: true,
-                readOnly: _ended != null || _controllerKind != 'you',
+                readOnly: !_live || _controllerKind != 'you',
                 deleteDetection: true,
+                textStyle: const TerminalStyle(
+                  fontFamily: 'JetBrainsMono',
+                  fontSize: 13,
+                ),
                 keyboardType: TextInputType.text,
               ),
             ),
-            if (_ended == null) _KeyBar(terminal: _terminal),
+            if (_live) _KeyBar(terminal: _terminal),
           ],
         ),
       ),

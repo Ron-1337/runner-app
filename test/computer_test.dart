@@ -8,6 +8,7 @@ import 'package:runner_app/core/remote.dart';
 import 'package:runner_app/core/store.dart';
 import 'package:runner_app/pages/computer.dart';
 import 'package:runner_app/services.dart';
+import 'package:xterm/xterm.dart';
 
 const allFeatures = [
   'overview',
@@ -147,9 +148,36 @@ class FakeComputer extends Core {
   @override
   Stream<RouteEvent> get routeEvents => _routes.stream;
 
+  /// The route requests go to; a reconnect opens the next one.
+  var route = 1;
+
+  /// How the next reconnects go: an error message fails one, null succeeds.
+  final reconnects = <String?>[];
+  var reopened = 0;
+
+  /// Routes requests went to after they were replaced.
+  final staleRoutes = <Object?>[];
+
+  /// The relay or computer drops the current route.
+  void drop() =>
+      _routes.add(RouteEvent(route, null, closed: true, error: '连接已断开'));
+
+  Future<Map<String, dynamic>> reopen() async {
+    reopened++;
+    final outcome = reconnects.isEmpty ? null : reconnects.removeAt(0);
+    if (outcome != null) throw CoreException(outcome);
+    route++;
+    return {
+      'route': route,
+      'welcome': {'platform': 'linux', 'features': allFeatures},
+    };
+  }
+
   @override
   Future<dynamic> call(String op, Map<String, Object?> args) async {
     if (op != 'request') return null;
+    // Checked by tearDown: an expect here would run inside the widget's code.
+    if (args['route'] != route) staleRoutes.add(args['route']);
     final message = args['message'] as Map<String, Object?>;
     requests.add(message);
     final answer = answers[message['type']];
@@ -163,6 +191,13 @@ Future<FakeComputer> open(
 }) async {
   FlutterSecureStorage.setMockInitialValues({});
   final core = FakeComputer();
+  addTearDown(
+    () => expect(
+      core.staleRoutes,
+      isEmpty,
+      reason: 'requests go to the current route',
+    ),
+  );
   await tester.pumpWidget(
     Services(
       core: core,
@@ -179,6 +214,7 @@ Future<FakeComputer> open(
             core: core,
             route: 1,
             welcome: {'platform': 'linux', 'features': features},
+            open: core.reopen,
           ),
         ),
       ),
@@ -354,5 +390,97 @@ void main() {
     final chat = tester.widget<ListTile>(find.widgetWithText(ListTile, '新建聊天'));
     expect(mission.enabled, isFalse);
     expect(chat.enabled, isTrue);
+  });
+
+  testWidgets('reconnects every 5 s after the route drops', (tester) async {
+    final core = await open(tester);
+    expect(core.of('overview'), hasLength(1));
+    core.reconnects.add('连接中继超时');
+    core.drop();
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('连接已断开，正在重连（第 1/3 次）…'), findsOneWidget);
+    await tester.pump(
+      const Duration(milliseconds: 500),
+    ); // The button animates out.
+    expect(find.byKey(const Key('new')), findsNothing);
+
+    await tester.pump(const Duration(seconds: 5));
+    expect(core.reopened, 1);
+    expect(find.text('连接已断开，正在重连（第 2/3 次）…'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
+    expect(core.reopened, 1, reason: '5 s between attempts');
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(core.reopened, 2);
+    expect(find.textContaining('正在重连'), findsNothing);
+    expect(
+      core.of('overview'),
+      hasLength(2),
+      reason: 'refreshed on the new route',
+    );
+    expect(find.byKey(const Key('new')), findsOneWidget);
+  });
+
+  testWidgets('offers a button after 3 failed attempts', (tester) async {
+    final core = await open(tester);
+    core.reconnects.addAll(['连接中继超时', '连接中继超时', '这台电脑不在线']);
+    core.drop();
+    for (var i = 0; i < 3; i++) {
+      await tester.pump(const Duration(seconds: 5));
+    }
+    await tester.pump();
+    expect(core.reopened, 3);
+    expect(find.text('无法重新连接：这台电脑不在线'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 30));
+    expect(core.reopened, 3, reason: 'waits for the button');
+
+    await tester.tap(find.byKey(const Key('reconnect')));
+    await tester.pump();
+    expect(find.text('连接已断开，正在重连（第 1/3 次）…'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(core.reopened, 4);
+    expect(find.byKey(const Key('reconnect')), findsNothing);
+  });
+
+  testWidgets('stops retrying when the computer no longer knows this phone', (
+    tester,
+  ) async {
+    final core = await open(tester);
+    core.reconnects.add('这台电脑不认识本机，请核对指纹后重新配对');
+    core.drop();
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(core.reopened, 1);
+    expect(find.byKey(const Key('reconnect')), findsOneWidget);
+  });
+
+  testWidgets('a terminal attaches again after a reconnect', (tester) async {
+    final core = await open(tester);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    expect(core.of('attach').single['control'], 'take');
+    final style = tester
+        .widget<TerminalView>(find.byType(TerminalView))
+        .textStyle;
+    expect(style.fontFamily, 'JetBrainsMono');
+
+    core.drop();
+    await tester.pump();
+    await tester.pump();
+    expect(find.textContaining('正在重连'), findsOneWidget);
+    expect(find.text('Ctrl+C'), findsNothing, reason: 'no input while down');
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    final again = core.of('attach').last;
+    expect(core.of('attach'), hasLength(2));
+    expect(
+      again['control'],
+      'ifFree',
+      reason: 'does not take it from someone else',
+    );
+    expect(again['session'], 's1');
+    expect(find.text('Ctrl+C'), findsOneWidget);
   });
 }

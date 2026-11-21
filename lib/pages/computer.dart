@@ -30,24 +30,32 @@ class ComputerPage extends StatefulWidget {
 class _ComputerPageState extends State<ComputerPage> {
   StreamSubscription<RouteEvent>? _events;
   Map<String, dynamic>? _overview;
-  String? _closed;
+  var _wasConnected = true;
 
   Remote get _remote => widget.remote;
 
   @override
   void initState() {
     super.initState();
-    _events = _remote.core.routeEvents
-        .where((e) => e.route == _remote.route)
-        .listen(_onEvent);
+    _events = _remote.pushes.listen(_onEvent);
+    _remote.addListener(_onState);
     _refresh();
   }
 
   @override
   void dispose() {
     _events?.cancel();
-    if (_closed == null) _remote.core.call('close', {'route': _remote.route});
+    _remote.removeListener(_onState);
+    _remote.dispose();
     super.dispose();
+  }
+
+  void _onState() {
+    if (!mounted) return;
+    setState(() {});
+    // A new route starts with no overview push; ask for it.
+    if (_remote.connected && !_wasConnected) _refresh();
+    _wasConnected = _remote.connected;
   }
 
   Future<void> _refresh() async {
@@ -55,15 +63,11 @@ class _ComputerPageState extends State<ComputerPage> {
       final overview = await _remote.request('overview');
       if (mounted) setState(() => _overview = overview as Map<String, dynamic>);
     } catch (e) {
-      if (mounted && _closed == null) showError(context, e);
+      if (mounted && _remote.connected) showError(context, e);
     }
   }
 
   void _onEvent(RouteEvent event) {
-    if (event.closed) {
-      setState(() => _closed = event.error ?? '连接已关闭');
-      return;
-    }
     final message = event.message!;
     switch (event.type) {
       case 'overview':
@@ -104,7 +108,7 @@ class _ComputerPageState extends State<ComputerPage> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) =>
-            TerminalPage(route: _remote.route, session: session, title: title),
+            TerminalPage(remote: _remote, session: session, title: title),
       ),
     );
   }
@@ -476,7 +480,7 @@ class _ComputerPageState extends State<ComputerPage> {
   @override
   Widget build(BuildContext context) {
     final overview = _overview;
-    final live = _closed == null;
+    final live = _remote.connected;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.computer['name'] as String? ?? '电脑'),
@@ -498,16 +502,7 @@ class _ComputerPageState extends State<ComputerPage> {
           : null,
       body: Column(
         children: [
-          if (!live)
-            MaterialBanner(
-              content: Text('连接已断开：$_closed'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('返回重新连接'),
-                ),
-              ],
-            ),
+          ReconnectBanner(remote: _remote),
           Expanded(
             child: overview == null
                 ? const Center(child: CircularProgressIndicator())

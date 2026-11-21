@@ -69,16 +69,17 @@ class _ComputersPageState extends State<ComputersPage> {
     final services = Services.of(context);
     setState(() => _opening = id);
     try {
-      final saved = await services.store.pairing(id);
+      var saved = await services.store.pairing(id);
+      Future<Map<String, dynamic>> connect(Pairing pairing) async =>
+          await services.core.call('connect', {
+                ..._route(id),
+                'clientKey': pairing.clientKey,
+                'hostKey': pairing.hostKey,
+              })
+              as Map<String, dynamic>;
       final Map<String, dynamic> opened;
       if (saved != null && saved.fingerprint == computer['fingerprint']) {
-        opened =
-            await services.core.call('connect', {
-                  ..._route(id),
-                  'clientKey': saved.clientKey,
-                  'hostKey': saved.hostKey,
-                })
-                as Map<String, dynamic>;
+        opened = await connect(saved);
       } else {
         if (!mounted) return;
         final pin = await askPin(context, computer);
@@ -91,15 +92,14 @@ class _ComputersPageState extends State<ComputersPage> {
                   'name': deviceName(),
                 })
                 as Map<String, dynamic>;
-        await services.store.savePairing(
-          id,
-          Pairing(
-            clientKey: opened['clientKey'] as String,
-            hostKey: opened['hostKey'] as String,
-            fingerprint: computer['fingerprint'] as String,
-          ),
+        saved = Pairing(
+          clientKey: opened['clientKey'] as String,
+          hostKey: opened['hostKey'] as String,
+          fingerprint: computer['fingerprint'] as String,
         );
+        await services.store.savePairing(id, saved);
       }
+      final pairing = saved;
       if (!mounted) return;
       setState(() => _opening = null);
       await Navigator.of(context).push(
@@ -111,6 +111,7 @@ class _ComputersPageState extends State<ComputersPage> {
               core: services.core,
               route: opened['route'] as int,
               welcome: opened['welcome'] as Map<String, dynamic>,
+              open: () => connect(pairing),
             ),
           ),
         ),
