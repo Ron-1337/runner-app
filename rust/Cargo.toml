@@ -1,0 +1,18 @@
+[package]
+name = "runner_mobile_core"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Runner remote-control client core for the mobile app."
+
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[dependencies]
+# Protocol types, Noise/CPace channel and companion messages, shared with Runner.
+runner-core = { git = "https://github.com/Ron-1337/runner", rev = "12c867d2f170f7a86900a4632f57f6264934b069" }
+
+[profile.release]
+lto = "thin"
+strip = true
