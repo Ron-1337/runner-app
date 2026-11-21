@@ -7,8 +7,12 @@ Runner 远程控制的手机客户端（Android 和 iOS），通过 runner-serve
 - 以手机身份登录 runner-server（device flow，在浏览器中批准）；手机不会出现在电脑列表里
 - 查看账号下的电脑和在线状态
 - 用电脑的 6 位 PIN 配对（CPace + Noise `XXpsk3`），之后用保存的密钥直接连接（Noise `IK`）
-- 查看电脑上的聊天和任务会话及状态
+- 按工作区查看电脑上的任务、标签页和会话及状态，和桌面侧边栏一致
+- 远程新建：聊天（选角色，或选运行时和模型）、终端、任务（选团队、标题、目标），可指定工作区和电脑上的工作目录
+- 远程启动：已停止的会话点开即可启动，任务可停止和恢复；会话可重启、停止、重命名、归档
+- 工作区：用电脑上的文件夹新建，重命名，删除（有运行中会话时确认后强制删除）
 - 打开终端：接管控制、查看输出、输入，附带 Esc/Tab/Ctrl+C/方向键按键栏
+- 只显示这台电脑上的 Runner 支持的操作（按 `welcome` 中的 features）
 
 ## 结构
 
@@ -29,7 +33,7 @@ flutter analyze
 flutter test
 ```
 
-`rust/tests/e2e.rs` 启动一个真实的 runner-server，用 `runner-core` 的 host 端扮演电脑，测试登录、配对、终端和重连的全过程。对已部署的服务器做 TLS 连通检查：
+`rust/tests/requests.rs` 用 Runner 自己的解析器检查 App 发出的每种请求；`rust/tests/e2e.rs` 启动一个真实的 runner-server，用 `runner-core` 的 host 端扮演电脑，测试登录、配对、终端和重连的全过程。对已部署的服务器做 TLS 连通检查：
 
 ```sh
 RUNNER_ORIGIN=https://runner.example.com cargo test --manifest-path rust/Cargo.toml -- --ignored

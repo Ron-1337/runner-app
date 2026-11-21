@@ -51,3 +51,7 @@ void showError(BuildContext context, Object error) {
     context,
   ).showSnackBar(SnackBar(content: Text(error.toString())));
 }
+
+/// A short notice at the bottom of the screen.
+void showMessage(BuildContext context, String message) =>
+    showError(context, message);

@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../core/core.dart';
+import '../core/remote.dart';
 import '../core/store.dart';
 import '../services.dart';
 import 'computer.dart';
@@ -106,7 +107,11 @@ class _ComputersPageState extends State<ComputersPage> {
           builder: (_) => ComputerPage(
             account: widget.account,
             computer: computer,
-            route: opened['route'] as int,
+            remote: Remote(
+              core: services.core,
+              route: opened['route'] as int,
+              welcome: opened['welcome'] as Map<String, dynamic>,
+            ),
           ),
         ),
       );
