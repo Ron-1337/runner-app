@@ -51,14 +51,27 @@ async fn rpc(
     credential: Option<&str>,
     body: Value,
 ) -> Result<Value, String> {
+    reply(send(origin, path, credential, body).await?).await
+}
+
+async fn send(
+    origin: &str,
+    path: &str,
+    credential: Option<&str>,
+    body: Value,
+) -> Result<reqwest::Response, String> {
     let mut request = http().post(format!("{origin}{path}")).json(&body);
     if let Some(credential) = credential {
         request = request.bearer_auth(credential);
     }
-    let response = request
+    request
         .send()
         .await
-        .map_err(|e| format!("无法连接服务器：{}", without_url(&e)))?;
+        .map_err(|e| format!("无法连接服务器：{}", without_url(&e)))
+}
+
+/// A response's JSON body, or the error it carries.
+async fn reply(response: reqwest::Response) -> Result<Value, String> {
     let status = response.status();
     let value: Value = response
         .json()
@@ -91,6 +104,29 @@ fn without_url(error: &reqwest::Error) -> String {
     message
 }
 
+/// The StartEnrollment body for a phone, in the official service's format
+/// (`ENROLLMENT_KIND_CLIENT` with a `client`), which runner-server also reads.
+/// `host` repeats the same details for servers that only read that field.
+fn enrollment_request(device: &Device, host_key: &str) -> Value {
+    json!({
+        "host": {
+            "hostname": device.name,
+            "platform": device.platform,
+            "arch": std::env::consts::ARCH,
+            "osVersion": device.os_version,
+            "runnerVersion": device.app_version,
+        },
+        "hostKey": host_key,
+        "kind": "ENROLLMENT_KIND_CLIENT",
+        "client": {
+            "name": device.name,
+            "platform": device.platform,
+            "osVersion": device.os_version,
+            "runnerVersion": device.app_version,
+        },
+    })
+}
+
 /// Starts a device-flow sign-in as a phone. The enrollment key only identifies the
 /// sign-in to the server; a phone never serves channels with it, so it is not kept.
 pub async fn start_enrollment(origin: &str, device: &Device) -> Result<Value, String> {
@@ -99,17 +135,7 @@ pub async fn start_enrollment(origin: &str, device: &Device) -> Result<Value, St
         origin,
         &format!("{ENROLL}/StartEnrollment"),
         None,
-        json!({
-            "host": {
-                "hostname": device.name,
-                "platform": device.platform,
-                "arch": std::env::consts::ARCH,
-                "osVersion": device.os_version,
-                "runnerVersion": device.app_version,
-            },
-            "hostKey": encode_key(&key.public),
-            "kind": "phone",
-        }),
+        enrollment_request(device, &encode_key(&key.public)),
     )
     .await
 }
@@ -134,7 +160,20 @@ pub async fn list_computers(origin: &str, credential: &str) -> Result<Value, Str
     .await
 }
 
+/// Signs the phone out with `SignOutClient`. A server without that method
+/// (runner-server before it spoke the official API) answers 404, and the phone
+/// signs out with `SignOutHost` there instead.
 pub async fn sign_out(origin: &str, credential: &str) -> Result<Value, String> {
+    let response = send(
+        origin,
+        &format!("{ENROLL}/SignOutClient"),
+        Some(credential),
+        json!({}),
+    )
+    .await?;
+    if response.status() != reqwest::StatusCode::NOT_FOUND {
+        return reply(response).await;
+    }
     rpc(
         origin,
         &format!("{ENROLL}/SignOutHost"),
@@ -176,7 +215,24 @@ pub async fn open_route(origin: &str, credential: &str, computer: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use super::origin;
+    use super::{Device, enrollment_request, origin};
+
+    #[test]
+    fn phones_enroll_as_official_clients() {
+        let device = Device {
+            name: "iPhone".into(),
+            platform: "ios".into(),
+            os_version: "26.1".into(),
+            app_version: "1.2.0".into(),
+        };
+        let body = enrollment_request(&device, "key");
+        assert_eq!(body["kind"], "ENROLLMENT_KIND_CLIENT");
+        assert_eq!(body["client"]["name"], "iPhone");
+        assert_eq!(body["client"]["osVersion"], "26.1");
+        assert_eq!(body["client"]["runnerVersion"], "1.2.0");
+        assert_eq!(body["host"]["hostname"], "iPhone");
+        assert_eq!(body["hostKey"], "key");
+    }
 
     #[test]
     fn origins_are_https_or_local() {
