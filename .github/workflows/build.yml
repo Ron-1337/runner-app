@@ -20,6 +20,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: Rust core
+        working-directory: rust
+        run: |
+          cargo fmt --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+          # The library test/native_test.dart loads through dart:ffi.
+          cargo build
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
@@ -28,17 +42,6 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust
-      - working-directory: rust
-        run: |
-          cargo fmt --check
-          cargo clippy --all-targets -- -D warnings
-          cargo test
 
   android:
     name: Android APK
@@ -67,7 +70,7 @@ jobs:
         working-directory: rust
         run: |
           export ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME"
-          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 build --release
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
       - run: flutter pub get
       # Release builds are signed with the debug key until a keystore is configured.
       - run: flutter build apk --release --split-per-abi
@@ -76,6 +79,8 @@ jobs:
           mkdir -p dist
           for apk in build/app/outputs/flutter-apk/app-*-release.apk; do
             abi="$(basename "$apk" | sed -E 's/^app-(.*)-release\.apk$/\1/')"
+            # Each APK must carry the Rust core, or the app cannot start.
+            unzip -l "$apk" | grep -q "lib/.*/librunner_mobile_core.so"
             cp "$apk" "dist/runner-app-${abi}.apk"
           done
       - uses: actions/upload-artifact@v6
@@ -95,18 +100,23 @@ jobs:
           cache: true
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+          targets: aarch64-apple-ios
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
           key: ios
       - name: Build Rust core for iOS
         working-directory: rust
-        run: |
-          cargo build --release --target aarch64-apple-ios
-          cargo build --release --target aarch64-apple-ios-sim
+        run: cargo build --release --target aarch64-apple-ios
       - run: flutter pub get
       - run: flutter build ios --release --no-codesign
+      # Dart finds the core with dlsym, so its entry points must survive linking and stripping.
+      - name: Check the Rust core is linked
+        run: |
+          symbols="$(nm -gU build/ios/iphoneos/Runner.app/Runner)"
+          for name in _rmc_start _rmc_send _rmc_free; do
+            grep -q " T $name$" <<<"$symbols" || { echo "missing $name"; exit 1; }
+          done
       # An unsigned IPA must be re-signed (e.g. Sideloadly, AltStore) before it installs.
       - name: Package
         run: |

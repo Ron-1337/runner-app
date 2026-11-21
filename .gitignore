@@ -10,8 +10,9 @@ build/
 .vscode/
 .DS_Store
 
-# Rust
+# Rust, and its Android libraries built by cargo-ndk
 /rust/target/
+/android/app/src/main/jniLibs/
 
 # Personal Claude Code settings
 .claude/settings.local.json
