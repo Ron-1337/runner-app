@@ -210,8 +210,10 @@ void main() {
     final terminal = tester.widget<TerminalView>(find.byType(TerminalView));
     expect(terminal.terminal.buffer.lines[0].toString(), startsWith('\$ 你好'));
 
-    await tester.tap(find.text('Ctrl+C'));
+    await tester.tap(find.text('Ctrl'));
     await tester.pump();
+    terminal.terminal.textInput('c'); // From the phone keyboard.
+    await tester.pumpAndSettle();
     expect(
       utf8.decode(
         base64Decode(core.requests('input').single['data'] as String),
@@ -228,6 +230,7 @@ void main() {
       'rows': 40,
       'controller': {'kind': 'desktop'},
     });
+    await tester.pump();
     await tester.pump();
     expect(find.textContaining('电脑桌面正在使用'), findsOneWidget);
     await tester.tap(find.text('接管'));

@@ -481,7 +481,7 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.textContaining('正在重连'), findsOneWidget);
-    expect(find.text('Ctrl+C'), findsNothing, reason: 'no input while down');
+    expect(find.text('Ctrl'), findsNothing, reason: 'no input while down');
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
     final again = core.of('attach').last;
@@ -492,7 +492,7 @@ void main() {
       reason: 'does not take it from someone else',
     );
     expect(again['session'], 's1');
-    expect(find.text('Ctrl+C'), findsOneWidget);
+    expect(find.text('Ctrl'), findsOneWidget);
   });
 
   testWidgets('the terminal settings change the font and the model', (
@@ -516,16 +516,38 @@ void main() {
     expect(fontSize(), 15);
     expect(await Store().terminalFontSize(), 15);
 
-    await tester.tap(find.byKey(const Key('effort-high')));
-    await tester.pump();
+    expect(find.text('未选择'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('model-opus')));
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.drag(find.byKey(const Key('effort')), const Offset(400, 0));
     await tester.pump(const Duration(milliseconds: 200));
     await tester.pumpAndSettle();
+    expect(find.text('High'), findsNWidgets(2), reason: 'value and end label');
     final typed = [
       for (final input in core.of('input'))
         utf8.decode(base64Decode(input['data'] as String)),
     ];
-    expect(typed, ['/effort high', '\r']);
-    expect(find.text('已发送 /effort high'), findsOneWidget);
+    expect(typed, ['/model opus', '\r', '/effort high', '\r']);
+
+    // Reopened, the settings show what was chosen.
+    await tester.tapAt(const Offset(10, 10));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('terminalSettings')));
+    await tester.pumpAndSettle();
+    final opus = tester.widget<RadioListTile<String>>(
+      find.byKey(const Key('model-opus')),
+    );
+    expect(
+      RadioGroup.maybeOf<String>(
+        tester.element(find.byKey(const Key('model-opus'))),
+      )?.groupValue,
+      'opus',
+    );
+    expect(opus.value, 'opus');
+    expect(
+      tester.widget<Text>(find.byKey(const Key('effortValue'))).data,
+      'High',
+    );
   });
 
   testWidgets('the key bar hides the keyboard', (tester) async {
@@ -581,5 +603,40 @@ void main() {
     ];
     expect(typed, isNotEmpty);
     expect(typed, everyElement(startsWith('\x1b[<64;')));
+  });
+
+  testWidgets('Ctrl, Shift and Alt hold for the next key and combine', (
+    tester,
+  ) async {
+    final core = await open(tester);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    final terminal = tester
+        .widget<TerminalView>(find.byType(TerminalView))
+        .terminal;
+    List<String> typed() => [
+      for (final input in core.of('input'))
+        utf8.decode(base64Decode(input['data'] as String)),
+    ];
+
+    await tester.tap(find.text('Ctrl'));
+    await tester.pump();
+    terminal.textInput('c'); // From the phone keyboard.
+    terminal.textInput('c'); // Ctrl was used up.
+    await tester.pump();
+    expect(typed(), ['\x03', 'c']);
+
+    await tester.tap(find.text('Ctrl'));
+    await tester.tap(find.text('Alt'));
+    await tester.pump();
+    terminal.textInput('x');
+    await tester.pump();
+    expect(typed().last, '\x1b\x18');
+
+    await tester.tap(find.text('Shift'));
+    await tester.pump();
+    await tester.tap(find.text('Tab'));
+    await tester.pump();
+    expect(typed().last, '\x1b[Z');
   });
 }

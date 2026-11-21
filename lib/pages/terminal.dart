@@ -5,8 +5,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:xterm/xterm.dart';
 
 import '../core/core.dart';
+import '../core/modifiers.dart';
 import '../core/mouse.dart';
 import '../core/remote.dart';
+import '../core/sgr.dart';
 import '../services.dart';
 
 /// A live terminal of a session on the computer.
@@ -44,6 +46,15 @@ class _TerminalPageState extends State<TerminalPage> {
   final _focus = FocusNode();
   double _fontSize = defaultFontSize;
   var _loadedFontSize = false;
+
+  /// Held for the next key: on the key bar, then cleared once a key uses them.
+  var _ctrl = false;
+  var _alt = false;
+  var _shift = false;
+
+  /// The model and effort last chosen here, shown when the settings reopen.
+  String? _model;
+  String? _effort;
   StreamSubscription<RouteEvent>? _events;
   var _wasConnected = true;
   late final ByteConversionSink _decoder;
@@ -86,10 +97,10 @@ class _TerminalPageState extends State<TerminalPage> {
 
   /// Types [command] into the agent and submits it, as the person would.
   Future<void> _command(String command) async {
-    _input(command);
+    _type(command);
     // Sent apart, so the agent sees a keypress rather than a pasted newline.
     await Future<void>.delayed(const Duration(milliseconds: 150));
-    _input('\r');
+    _type('\r');
     if (mounted) showMessage(context, '已发送 $command');
   }
 
@@ -104,7 +115,16 @@ class _TerminalPageState extends State<TerminalPage> {
         fontSize: _fontSize,
         onFontSize: _setFontSize,
         canType: _live && _controllerKind == 'you',
-        onCommand: _command,
+        model: _model,
+        effort: _effort,
+        onModel: (model) {
+          _model = model;
+          _command(switchCommand(widget.runtime, 'model', model)!);
+        },
+        onEffort: (effort) {
+          _effort = effort;
+          _command(switchCommand(widget.runtime, 'effort', effort)!);
+        },
       ),
     );
   }
@@ -179,7 +199,29 @@ class _TerminalPageState extends State<TerminalPage> {
     });
   }
 
+  /// What the terminal sends: keys, the keyboard's text and mouse reports.
+  /// The held modifiers apply to the next single key.
   void _input(String data) {
+    if ((_ctrl || _alt || _shift) && data.runes.length == 1) {
+      data = applyModifiers(data, ctrl: _ctrl, alt: _alt, shift: _shift);
+      _clearModifiers();
+    }
+    _type(data);
+  }
+
+  void _clearModifiers() {
+    if (!_ctrl && !_alt && !_shift) return;
+    setState(() => _ctrl = _alt = _shift = false);
+  }
+
+  /// A key-bar key, with the held modifiers.
+  void _key(TerminalKey key) {
+    final (ctrl, alt, shift) = (_ctrl, _alt, _shift);
+    _clearModifiers();
+    _terminal.keyInput(key, ctrl: ctrl, alt: alt, shift: shift);
+  }
+
+  void _type(String data) {
     if (!_live || _controllerKind != 'you') return;
     _send({
       'type': 'input',
@@ -260,7 +302,16 @@ class _TerminalPageState extends State<TerminalPage> {
               ),
             ),
             if (_live)
-              _KeyBar(terminal: _terminal, onHideKeyboard: _focus.unfocus),
+              _KeyBar(
+                onKey: _key,
+                onHideKeyboard: _focus.unfocus,
+                ctrl: _ctrl,
+                alt: _alt,
+                shift: _shift,
+                onCtrl: () => setState(() => _ctrl = !_ctrl),
+                onAlt: () => setState(() => _alt = !_alt),
+                onShift: () => setState(() => _shift = !_shift),
+              ),
           ],
         ),
       ),
@@ -279,11 +330,13 @@ class _TerminalSink implements Sink<String> {
   _TerminalSink(this.terminal, this.mouse);
   final Terminal terminal;
   final MouseModes mouse;
+  final _styles = SgrFilter();
 
   @override
   void add(String data) {
-    mouse.scan(data);
-    terminal.write(data);
+    final text = _styles.apply(data);
+    mouse.scan(text);
+    terminal.write(text);
   }
 
   @override
@@ -291,24 +344,64 @@ class _TerminalSink implements Sink<String> {
 }
 
 /// Keys a phone keyboard lacks. They go through the terminal so its modes apply.
+///
+/// Ctrl, Alt and Shift stay held for one key, from this bar or the keyboard,
+/// and combine.
 class _KeyBar extends StatelessWidget {
-  const _KeyBar({required this.terminal, required this.onHideKeyboard});
+  const _KeyBar({
+    required this.onKey,
+    required this.onHideKeyboard,
+    required this.ctrl,
+    required this.alt,
+    required this.shift,
+    required this.onCtrl,
+    required this.onAlt,
+    required this.onShift,
+  });
 
-  final Terminal terminal;
+  final ValueChanged<TerminalKey> onKey;
   final VoidCallback onHideKeyboard;
+  final bool ctrl;
+  final bool alt;
+  final bool shift;
+  final VoidCallback onCtrl;
+  final VoidCallback onAlt;
+  final VoidCallback onShift;
 
   @override
   Widget build(BuildContext context) {
-    Widget key(String label, VoidCallback onPressed) => Padding(
+    final style = OutlinedButton.styleFrom(
+      minimumSize: const Size(44, 36),
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+    );
+    Widget pad(Widget child) => Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: OutlinedButton(
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size(44, 36),
-          padding: const EdgeInsets.symmetric(horizontal: 10),
-        ),
-        onPressed: onPressed,
+      child: child,
+    );
+    Widget key(String label, TerminalKey key) => pad(
+      OutlinedButton(
+        style: style,
+        onPressed: () => onKey(key),
         child: Text(label),
       ),
+    );
+    Widget modifier(String label, bool held, VoidCallback onPressed) => pad(
+      held
+          ? FilledButton(
+              key: Key('modifier-$label'),
+              style: FilledButton.styleFrom(
+                minimumSize: const Size(44, 36),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+              ),
+              onPressed: onPressed,
+              child: Text(label),
+            )
+          : OutlinedButton(
+              key: Key('modifier-$label'),
+              style: style,
+              onPressed: onPressed,
+              child: Text(label),
+            ),
     );
     return SizedBox(
       height: 44,
@@ -316,9 +409,8 @@ class _KeyBar extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: IconButton.outlined(
+          pad(
+            IconButton.outlined(
               key: const Key('hideKeyboard'),
               tooltip: '收起键盘',
               constraints: const BoxConstraints(minWidth: 44, minHeight: 36),
@@ -327,14 +419,16 @@ class _KeyBar extends StatelessWidget {
               onPressed: onHideKeyboard,
             ),
           ),
-          key('Esc', () => terminal.keyInput(TerminalKey.escape)),
-          key('Tab', () => terminal.keyInput(TerminalKey.tab)),
-          key('Ctrl+C', () => terminal.keyInput(TerminalKey.keyC, ctrl: true)),
-          key('↑', () => terminal.keyInput(TerminalKey.arrowUp)),
-          key('↓', () => terminal.keyInput(TerminalKey.arrowDown)),
-          key('←', () => terminal.keyInput(TerminalKey.arrowLeft)),
-          key('→', () => terminal.keyInput(TerminalKey.arrowRight)),
-          key('Enter', () => terminal.keyInput(TerminalKey.enter)),
+          key('Esc', TerminalKey.escape),
+          key('Tab', TerminalKey.tab),
+          modifier('Ctrl', ctrl, onCtrl),
+          modifier('Shift', shift, onShift),
+          modifier('Alt', alt, onAlt),
+          key('↑', TerminalKey.arrowUp),
+          key('↓', TerminalKey.arrowDown),
+          key('←', TerminalKey.arrowLeft),
+          key('→', TerminalKey.arrowRight),
+          key('Enter', TerminalKey.enter),
         ],
       ),
     );
@@ -354,9 +448,11 @@ String? switchCommand(String? runtime, String setting, String value) {
 
 /// The terminal's font size, and the agent's model and effort.
 ///
-/// No request changes a running session's model, so the choice is typed into
+/// No request changes a running session's model, so a choice is typed into
 /// the agent as its own slash command; only Claude Code takes one with the
-/// value. The catalog lists what the computer offers for the runtime.
+/// value. The catalog lists what the computer offers for the runtime. The
+/// agent does not say which model it runs, so the choice shown is the last one
+/// made here, or the runtime's default.
 class TerminalSettings extends StatefulWidget {
   const TerminalSettings({
     super.key,
@@ -365,7 +461,10 @@ class TerminalSettings extends StatefulWidget {
     required this.fontSize,
     required this.onFontSize,
     required this.canType,
-    required this.onCommand,
+    required this.model,
+    required this.effort,
+    required this.onModel,
+    required this.onEffort,
   });
 
   final Remote remote;
@@ -373,7 +472,10 @@ class TerminalSettings extends StatefulWidget {
   final double fontSize;
   final ValueChanged<double> onFontSize;
   final bool canType;
-  final ValueChanged<String> onCommand;
+  final String? model;
+  final String? effort;
+  final ValueChanged<String> onModel;
+  final ValueChanged<String> onEffort;
 
   @override
   State<TerminalSettings> createState() => _TerminalSettingsState();
@@ -382,6 +484,12 @@ class TerminalSettings extends StatefulWidget {
 class _TerminalSettingsState extends State<TerminalSettings> {
   late double _fontSize = widget.fontSize;
   Map<String, dynamic>? _runtime;
+  late String? _model = widget.model;
+  late String? _effort = widget.effort;
+  late String? _sentEffort = widget.effort;
+
+  /// The slider's position while it is dragged.
+  double? _dragging;
   String? _error;
   var _loading = false;
 
@@ -400,11 +508,13 @@ class _TerminalSettingsState extends State<TerminalSettings> {
       final runtimes = ((catalog['runtimes'] as List?) ?? const [])
           .cast<Map<String, dynamic>>();
       if (!mounted) return;
-      setState(
-        () => _runtime = runtimes
+      setState(() {
+        _runtime = runtimes
             .where((r) => r['name'] == widget.runtime)
-            .firstOrNull,
-      );
+            .firstOrNull;
+        _model ??= _runtime?['defaultModel'] as String?;
+        _effort ??= _runtime?['defaultEffort'] as String?;
+      });
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -418,46 +528,128 @@ class _TerminalSettingsState extends State<TerminalSettings> {
     widget.onFontSize(clamped);
   }
 
-  List<Map<String, dynamic>> _options(String key) =>
-      ((_runtime?[key] as List?) ?? const []).cast<Map<String, dynamic>>();
+  List<Map<String, dynamic>> _options(Map<String, dynamic>? from, String key) =>
+      ((from?[key] as List?) ?? const []).cast<Map<String, dynamic>>();
 
-  Widget _choices(String title, String setting, String key) {
-    final options = _options(key);
-    if (options.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+  String _label(Map<String, dynamic> option) =>
+      option['label'] as String? ?? option['value'] as String;
+
+  /// The runtime's efforts, narrowed to those the chosen model supports.
+  List<Map<String, dynamic>> get _efforts {
+    final all = _options(_runtime, 'efforts');
+    final model = _options(
+      _runtime,
+      'models',
+    ).where((m) => m['value'] == _model).firstOrNull;
+    final supported = ((model?['supportedEfforts'] as List?) ?? const [])
+        .cast<String>();
+    if (supported.isEmpty) return all;
+    return all.where((e) => supported.contains(e['value'])).toList();
+  }
+
+  void _chooseModel(String? model) {
+    if (model == null || model == _model) return;
+    setState(() => _model = model);
+    widget.onModel(model);
+  }
+
+  Widget _heading(String text) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+    child: Text(text, style: Theme.of(context).textTheme.titleSmall),
+  );
+
+  Widget _models() {
+    final models = _options(_runtime, 'models');
+    if (models.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _heading('模型'),
+        RadioGroup<String>(
+          groupValue: _model,
+          onChanged: widget.canType ? _chooseModel : (_) {},
+          child: Column(
             children: [
-              for (final option in options)
-                ActionChip(
-                  key: Key('$setting-${option['value']}'),
-                  label: Text(
-                    option['label'] as String? ?? option['value'] as String,
-                  ),
-                  onPressed: widget.canType
-                      ? () {
-                          Navigator.pop(context);
-                          widget.onCommand(
-                            switchCommand(
-                              widget.runtime,
-                              setting,
-                              option['value'] as String,
-                            )!,
-                          );
-                        }
-                      : null,
+              for (final model in models)
+                RadioListTile<String>(
+                  key: Key('model-${model['value']}'),
+                  value: model['value'] as String,
+                  enabled: widget.canType,
+                  title: Text(_label(model)),
+                  dense: true,
                 ),
             ],
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  Widget _effortSlider() {
+    final efforts = _efforts;
+    if (efforts.isEmpty) return const SizedBox.shrink();
+    final values = [for (final e in efforts) e['value'] as String];
+    final chosen = values.indexOf(_effort ?? '');
+    final index = _dragging ?? (chosen < 0 ? 0 : chosen).toDouble();
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text('Effort', style: theme.textTheme.titleSmall),
+              ),
+              Text(
+                chosen < 0 && _dragging == null
+                    ? '未选择'
+                    : _label(efforts[index.round()]),
+                key: const Key('effortValue'),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (efforts.length == 1)
+          const SizedBox(height: 8)
+        else
+          Slider(
+            key: const Key('effort'),
+            value: index,
+            max: (efforts.length - 1).toDouble(),
+            divisions: efforts.length - 1,
+            onChanged: widget.canType
+                ? (v) => setState(() => _dragging = v)
+                : null,
+            onChangeEnd: (v) {
+              final effort = values[v.round()];
+              setState(() {
+                _dragging = null;
+                _effort = effort;
+              });
+              // Typed only when it differs from what was last sent from here.
+              if (effort != _sentEffort) {
+                _sentEffort = effort;
+                widget.onEffort(effort);
+              }
+            },
+          ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(_label(efforts.first), style: theme.textTheme.bodySmall),
+              if (efforts.length > 1)
+                Text(_label(efforts.last), style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -528,8 +720,8 @@ class _TerminalSettingsState extends State<TerminalSettings> {
                 padding: EdgeInsets.all(16),
                 child: Center(child: CircularProgressIndicator()),
               ),
-            _choices('模型', 'model', 'models'),
-            _choices('Effort', 'effort', 'efforts'),
+            _models(),
+            _effortSlider(),
             if (note != null)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
