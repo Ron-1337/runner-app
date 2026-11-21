@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -80,6 +81,7 @@ Map<String, dynamic> overview() => {
     's1': {
       'kind': 'chat',
       'title': 'Fix the build',
+      'runtime': 'claude',
       'status': 'idle',
       'unread': true,
     },
@@ -114,6 +116,10 @@ class FakeComputer extends Core {
           'available': true,
           'models': [
             {'value': 'opus', 'label': 'Opus'},
+          ],
+          'efforts': [
+            {'value': 'low', 'label': 'Low'},
+            {'value': 'high', 'label': 'High'},
           ],
         },
         {'name': 'codex', 'label': 'Codex', 'available': false, 'models': []},
@@ -157,6 +163,10 @@ class FakeComputer extends Core {
 
   /// Routes requests went to after they were replaced.
   final staleRoutes = <Object?>[];
+
+  /// The computer pushes [message] on the current route.
+  void push(Map<String, dynamic> message) =>
+      _routes.add(RouteEvent(route, message));
 
   /// The relay or computer drops the current route.
   void drop() =>
@@ -483,5 +493,93 @@ void main() {
     );
     expect(again['session'], 's1');
     expect(find.text('Ctrl+C'), findsOneWidget);
+  });
+
+  testWidgets('the terminal settings change the font and the model', (
+    tester,
+  ) async {
+    final core = await open(tester);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    double fontSize() => tester
+        .widget<TerminalView>(find.byType(TerminalView))
+        .textStyle
+        .fontSize;
+    expect(fontSize(), 13);
+
+    await tester.tap(find.byKey(const Key('terminalSettings')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('fontLarger')));
+    await tester.tap(find.byKey(const Key('fontLarger')));
+    await tester.pumpAndSettle();
+    expect(find.text('15'), findsOneWidget);
+    expect(fontSize(), 15);
+    expect(await Store().terminalFontSize(), 15);
+
+    await tester.tap(find.byKey(const Key('effort-high')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.pumpAndSettle();
+    final typed = [
+      for (final input in core.of('input'))
+        utf8.decode(base64Decode(input['data'] as String)),
+    ];
+    expect(typed, ['/effort high', '\r']);
+    expect(find.text('已发送 /effort high'), findsOneWidget);
+  });
+
+  testWidgets('the key bar hides the keyboard', (tester) async {
+    await open(tester);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    bool focused() => tester
+        .widget<TerminalView>(find.byType(TerminalView))
+        .focusNode!
+        .hasFocus;
+    expect(focused(), isTrue);
+    await tester.tap(find.byKey(const Key('hideKeyboard')));
+    await tester.pump();
+    expect(focused(), isFalse);
+  });
+
+  testWidgets('without a known runtime only the font size is offered', (
+    tester,
+  ) async {
+    final core = await open(tester);
+    await tester.tap(find.text('Review'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('terminalSettings')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('fontSize')), findsOneWidget);
+    expect(find.byKey(const Key('model-opus')), findsNothing);
+    expect(core.of('catalog'), isEmpty);
+  });
+
+  testWidgets('swiping a full-screen agent scrolls it with the wheel', (
+    tester,
+  ) async {
+    final core = await open(tester);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    // How the host's snapshot of Claude Code's full-screen UI sets the modes.
+    const modes =
+        '\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1003l\x1b[?1006h\x1b[?1005l';
+    core.push({
+      'type': 'snapshot',
+      'session': 's1',
+      'data': base64Encode(utf8.encode('\x1bc${modes}transcript')),
+      'more': false,
+    });
+    await tester.pumpAndSettle();
+    final terminal = tester.widget<TerminalView>(find.byType(TerminalView));
+    expect(terminal.terminal.isUsingAltBuffer, isTrue);
+    await tester.drag(find.byType(TerminalView), const Offset(0, 200));
+    await tester.pumpAndSettle();
+    final typed = [
+      for (final input in core.of('input'))
+        utf8.decode(base64Decode(input['data'] as String)),
+    ];
+    expect(typed, isNotEmpty);
+    expect(typed, everyElement(startsWith('\x1b[<64;')));
   });
 }

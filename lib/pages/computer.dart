@@ -121,6 +121,7 @@ class _ComputerPageState extends State<ComputerPage> {
 
   Future<void> _openTerminal(String session, String title) async {
     final sessions = _overview?['sessions'] as Map<String, dynamic>?;
+    final runtime = (sessions?[session] as Map?)?['runtime'] as String?;
     if ((sessions?[session] as Map?)?['unread'] == true &&
         _remote.has('markViewed')) {
       unawaited(
@@ -129,8 +130,12 @@ class _ComputerPageState extends State<ComputerPage> {
     }
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) =>
-            TerminalPage(remote: _remote, session: session, title: title),
+        builder: (_) => TerminalPage(
+          remote: _remote,
+          session: session,
+          title: title,
+          runtime: runtime,
+        ),
       ),
     );
   }
@@ -143,13 +148,16 @@ class _ComputerPageState extends State<ComputerPage> {
       ),
     );
     if (started == null || !mounted) return;
-    unawaited(_refresh());
     if (started.session != null) {
+      // The new session's runtime comes with the overview.
+      await _refresh();
+      if (!mounted) return;
       await _openTerminal(
         started.session!,
         kind == StartKind.shell ? '终端' : '新聊天',
       );
     } else {
+      unawaited(_refresh());
       showMessage(context, '任务已启动');
     }
   }

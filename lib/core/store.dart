@@ -201,6 +201,15 @@ class Store {
 
   Future<void> forgetPairing(Account account, String computer) =>
       _storage.delete(key: _pairing(account.id, computer));
+
+  static const _fontSize = 'terminalFontSize';
+
+  /// The terminal's font size, the same for every computer; null until changed.
+  Future<double?> terminalFontSize() async =>
+      double.tryParse(await _storage.read(key: _fontSize) ?? '');
+
+  Future<void> setTerminalFontSize(double size) =>
+      _storage.write(key: _fontSize, value: '$size');
 }
 
 final _random = Random.secure();
