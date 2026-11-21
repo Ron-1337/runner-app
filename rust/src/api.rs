@@ -30,9 +30,7 @@ pub fn origin(value: &str) -> Result<String, String> {
     match origin.split_once("://") {
         // The app warns before plain HTTP; the relay traffic stays end-to-end
         // encrypted either way.
-        Some(("https" | "http", rest)) if !rest.is_empty() && !rest.starts_with('/') => {
-            Ok(origin)
-        }
+        Some(("https" | "http", rest)) if !rest.is_empty() && !rest.starts_with('/') => Ok(origin),
         _ => Err("只支持 HTTPS 或 HTTP 地址".into()),
     }
 }
