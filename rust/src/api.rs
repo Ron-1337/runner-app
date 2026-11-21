@@ -27,14 +27,13 @@ pub struct Device {
 
 pub fn origin(value: &str) -> Result<String, String> {
     let origin = value.trim().trim_end_matches('/').to_owned();
-    let local = |rest: &str| {
-        let host = rest.split([':', '/']).next().unwrap_or_default();
-        host == "localhost" || host == "127.0.0.1"
-    };
     match origin.split_once("://") {
-        Some(("https", rest)) if !rest.is_empty() => Ok(origin),
-        Some(("http", rest)) if local(rest) => Ok(origin),
-        _ => Err("只支持 HTTPS 地址".into()),
+        // The app warns before plain HTTP; the relay traffic stays end-to-end
+        // encrypted either way.
+        Some(("https" | "http", rest)) if !rest.is_empty() && !rest.starts_with('/') => {
+            Ok(origin)
+        }
+        _ => Err("只支持 HTTPS 或 HTTP 地址".into()),
     }
 }
 
@@ -235,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn origins_are_https_or_local() {
+    fn origins_are_https_or_http() {
         assert_eq!(
             origin(" https://runner.example.com/ ").unwrap(),
             "https://runner.example.com"
@@ -245,8 +244,12 @@ mod tests {
             "http://localhost:8080"
         );
         assert_eq!(origin("http://127.0.0.1:1/").unwrap(), "http://127.0.0.1:1");
-        assert!(origin("http://runner.example.com").is_err());
-        assert!(origin("http://localhost.evil.com").is_err());
+        assert_eq!(
+            origin("http://192.168.1.5:8080").unwrap(),
+            "http://192.168.1.5:8080"
+        );
+        assert!(origin("ftp://runner.example.com").is_err());
+        assert!(origin("http:///path").is_err());
         assert!(origin("runner.example.com").is_err());
         assert!(origin("https://").is_err());
     }

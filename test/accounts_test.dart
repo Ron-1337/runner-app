@@ -111,10 +111,10 @@ void main() {
     expect(notified.session, 's1');
     expect(
       AppLink.parse(
-        Uri.parse('runner-remote://open?server=http://r.example&computer=42'),
+        Uri.parse('runner-remote://open?server=ftp://r.example&computer=42'),
       ),
       isNull,
-      reason: 'HTTPS only',
+      reason: 'HTTPS or HTTP only',
     );
     expect(AppLink.parse(Uri.parse('https://r.example/add')), isNull);
     expect(AppLink.parse(Uri.parse('runner-remote://nope')), isNull);

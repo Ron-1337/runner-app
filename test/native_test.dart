@@ -12,14 +12,14 @@ void main() {
     final core = NativeCore.instance;
     await expectLater(
       core.call('listComputers', {
-        'origin': 'http://example.com',
+        'origin': 'ftp://example.com',
         'credential': 'x',
       }),
       throwsA(
         isA<CoreException>().having(
           (e) => e.message,
           'message',
-          '只支持 HTTPS 地址',
+          '只支持 HTTPS 或 HTTP 地址',
         ),
       ),
     );

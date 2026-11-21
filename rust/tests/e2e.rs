@@ -436,10 +436,10 @@ async fn bad_input_is_reported_as_an_error_reply() {
     let error = app.call(json!({"op": "frobnicate"})).await.unwrap_err();
     assert!(error.starts_with("invalid command"), "{error}");
     let error = app
-        .call(json!({"op": "listComputers", "origin": "http://example.com", "credential": "x"}))
+        .call(json!({"op": "listComputers", "origin": "ftp://example.com", "credential": "x"}))
         .await
         .unwrap_err();
-    assert_eq!(error, "只支持 HTTPS 地址");
+    assert_eq!(error, "只支持 HTTPS 或 HTTP 地址");
     let error = app
         .call(json!({"op": "request", "route": 99, "message": {"type": "overview"}}))
         .await

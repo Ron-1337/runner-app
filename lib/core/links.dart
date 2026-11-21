@@ -13,19 +13,20 @@ library;
 
 const linkScheme = 'runner-remote';
 
-/// Mirrors Runner's rule: HTTPS only, except plain HTTP on localhost for testing.
+/// An HTTPS or HTTP server address; HTTP is allowed after a warning (see
+/// [isPlainHttp]).
 String? validateOrigin(String input) {
   final uri = Uri.tryParse(input.trim());
   if (uri == null || uri.host.isEmpty) {
     return '请输入完整地址，例如 https://runner.example.com';
   }
-  if (uri.scheme == 'https') return null;
-  if (uri.scheme == 'http' &&
-      (uri.host == 'localhost' || uri.host == '127.0.0.1')) {
-    return null;
-  }
-  return '只支持 HTTPS 地址';
+  if (uri.scheme == 'https' || uri.scheme == 'http') return null;
+  return '只支持 HTTPS 或 HTTP 地址';
 }
+
+/// Whether [origin] is unencrypted HTTP, which the person confirms first.
+bool isPlainHttp(String origin) =>
+    Uri.tryParse(origin.trim())?.scheme == 'http';
 
 sealed class AppLink {
   const AppLink();

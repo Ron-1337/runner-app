@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/services.dart';
+import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -56,6 +58,8 @@ class _ServerPageState extends State<ServerPage> {
     setState(() => _error = error);
     if (error != null) return;
     final origin = _origin.text.trim();
+    if (isPlainHttp(origin) && !await confirmPlainHttp(context, origin)) return;
+    if (!mounted) return;
     setState(() => _busy = true);
     try {
       final core = Services.of(context).core;
@@ -136,6 +140,80 @@ class _ServerPageState extends State<ServerPage> {
   }
 }
 
+/// Asks before signing in over unencrypted HTTP. Continuing is held back for a
+/// second, so the warning is not tapped away unread.
+Future<bool> confirmPlainHttp(BuildContext context, String origin) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => _PlainHttpDialog(origin: origin),
+    ) ==
+    true;
+
+class _PlainHttpDialog extends StatefulWidget {
+  const _PlainHttpDialog({required this.origin});
+  final String origin;
+
+  @override
+  State<_PlainHttpDialog> createState() => _PlainHttpDialogState();
+}
+
+class _PlainHttpDialogState extends State<_PlainHttpDialog> {
+  static const _hold = Duration(seconds: 1);
+  late final Timer _timer;
+  var _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(_hold, () {
+      if (mounted) setState(() => _ready = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    icon: const Icon(Icons.lock_open),
+    title: const Text('连接未加密'),
+    content: Text(
+      '${widget.origin} 使用 HTTP，登录时的账号、密码和登录凭据会以明文在网络上传输，'
+      '同一网络中的其他人可能看到或篡改。电脑与手机之间的会话内容仍然端到端加密。\n\n'
+      '只在可信的网络（例如家里或公司内网）中继续。',
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context, false),
+        child: const Text('取消'),
+      ),
+      FilledButton(
+        key: const Key('httpProceed'),
+        onPressed: _ready ? () => Navigator.pop(context, true) : null,
+        child: Text(_ready ? '继续' : '继续（1 秒）'),
+      ),
+    ],
+  );
+}
+
+/// The URL scheme the sign-in browser returns to once the server has a
+/// decision; runner-server redirects there when the page was opened with
+/// `app=1`.
+const authCallbackScheme = 'runner-remote-auth';
+
+/// Opens [url] in the system's sign-in browser (Custom Tabs on Android,
+/// ASWebAuthenticationSession on iOS), which shares the browser's sign-in.
+/// Completes once the page returns to the app; throws when the person closes
+/// it first. Tests replace it.
+Future<void> Function(String url) openSignInBrowser = (url) =>
+    FlutterWebAuth2.authenticate(
+      url: url,
+      callbackUrlScheme: authCallbackScheme,
+    );
+
 /// Shows the sign-in code and waits while the person approves it in a browser.
 class EnrollPage extends StatefulWidget {
   const EnrollPage({super.key, required this.origin, required this.start});
@@ -163,6 +241,10 @@ class _EnrollPageState extends State<EnrollPage> {
       Duration(seconds: interval.clamp(1, 30)),
       (_) => _poll(),
     );
+    // Straight to the approval page, as signing in with a web account does.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _open();
+    });
   }
 
   @override
@@ -213,13 +295,39 @@ class _EnrollPageState extends State<EnrollPage> {
     }
   }
 
+  /// The approval page, marked so runner-server sends the browser back here.
+  String get _appLink {
+    final uri = Uri.parse(_link);
+    return uri
+        .replace(queryParameters: {...uri.queryParameters, 'app': '1'})
+        .toString();
+  }
+
   Future<void> _open() async {
-    if (!await launchUrl(
-      Uri.parse(_link),
-      mode: LaunchMode.externalApplication,
-    )) {
-      if (mounted) showError(context, '无法打开浏览器，请手动访问：$_link');
+    try {
+      await openSignInBrowser(_appLink);
+      // Returned with a decision: ask at once rather than at the next tick.
+      if (mounted) await _poll();
+    } on PlatformException catch (e) {
+      // Closed by the person, or a server that does not return to the app:
+      // polling carries on either way.
+      if (e.code == 'CANCELED') return;
+      await _openExternally();
+    } on MissingPluginException {
+      await _openExternally();
     }
+  }
+
+  Future<void> _openExternally() async {
+    if (!mounted) return;
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse(_link),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {}
+    if (!opened && mounted) showError(context, '无法打开浏览器，请手动访问：$_link');
   }
 
   @override

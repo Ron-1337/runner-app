@@ -10,6 +10,7 @@ import '../core/mouse.dart';
 import '../core/remote.dart';
 import '../core/sgr.dart';
 import '../services.dart';
+import 'terminal_keyboard.dart';
 
 /// A live terminal of a session on the computer.
 ///
@@ -44,6 +45,11 @@ class _TerminalPageState extends State<TerminalPage> {
   );
   final _controller = TerminalController();
   final _focus = FocusNode();
+  final _keyboard = GlobalKey<TerminalKeyboardState>();
+
+  /// What the phone keyboard is composing (pinyin and the like), shown above
+  /// the key bar until it is committed.
+  String? _composing;
   double _fontSize = defaultFontSize;
   var _loadedFontSize = false;
 
@@ -78,6 +84,11 @@ class _TerminalPageState extends State<TerminalPage> {
     _terminal.onResize = (cols, rows, _, _) => _resized(cols, rows);
     _events = widget.remote.pushes.listen(_onEvent);
     widget.remote.addListener(_onState);
+    _focus.addListener(_onFocus);
+  }
+
+  void _onFocus() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -256,6 +267,9 @@ class _TerminalPageState extends State<TerminalPage> {
   @override
   Widget build(BuildContext context) {
     final reconnecting = _ended == null && !widget.remote.connected;
+    // Read first, so the page rebuilds when the keyboard comes and goes.
+    final keyboardOpen =
+        MediaQuery.viewInsetsOf(context).bottom > 0 && _focus.hasFocus;
     final banner = reconnecting ? null : _ended ?? _controlBanner();
     return Scaffold(
       appBar: AppBar(
@@ -287,24 +301,51 @@ class _TerminalPageState extends State<TerminalPage> {
                 ],
               ),
             Expanded(
-              child: TerminalView(
-                _terminal,
-                controller: _controller,
+              child: TerminalKeyboard(
+                key: _keyboard,
                 focusNode: _focus,
-                autofocus: true,
                 readOnly: !_live || _controllerKind != 'you',
-                deleteDetection: true,
-                textStyle: TerminalStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontSize: _fontSize,
+                onText: _terminal.textInput,
+                onBackspace: () => _terminal.keyInput(TerminalKey.backspace),
+                onEnter: () => _terminal.keyInput(TerminalKey.enter),
+                onComposing: (text) {
+                  if (text != _composing && mounted) {
+                    setState(() => _composing = text);
+                  }
+                },
+                // The phone keyboard goes through TerminalKeyboard; the view
+                // keeps only a hardware keyboard's keys.
+                child: TerminalView(
+                  _terminal,
+                  controller: _controller,
+                  focusNode: _focus,
+                  autofocus: true,
+                  hardwareKeyboardOnly: true,
+                  readOnly: !_live || _controllerKind != 'you',
+                  textStyle: TerminalStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontSize: _fontSize,
+                  ),
                 ),
-                keyboardType: TextInputType.text,
               ),
             ),
+            if (_composing != null && _composing!.isNotEmpty)
+              Container(
+                key: const Key('composing'),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                child: Text(_composing!),
+              ),
             if (_live)
               _KeyBar(
                 onKey: _key,
+                keyboardOpen: keyboardOpen,
                 onHideKeyboard: _focus.unfocus,
+                onShowKeyboard: () => _keyboard.currentState?.show(),
                 ctrl: _ctrl,
                 alt: _alt,
                 shift: _shift,
@@ -350,7 +391,9 @@ class _TerminalSink implements Sink<String> {
 class _KeyBar extends StatelessWidget {
   const _KeyBar({
     required this.onKey,
+    required this.keyboardOpen,
     required this.onHideKeyboard,
+    required this.onShowKeyboard,
     required this.ctrl,
     required this.alt,
     required this.shift,
@@ -360,7 +403,9 @@ class _KeyBar extends StatelessWidget {
   });
 
   final ValueChanged<TerminalKey> onKey;
+  final bool keyboardOpen;
   final VoidCallback onHideKeyboard;
+  final VoidCallback onShowKeyboard;
   final bool ctrl;
   final bool alt;
   final bool shift;
@@ -403,39 +448,68 @@ class _KeyBar extends StatelessWidget {
               child: Text(label),
             ),
     );
+    // The keyboard button and Enter stay put; the keys between them scroll.
     return SizedBox(
       height: 44,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
+      child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        children: [
-          pad(
-            IconButton.outlined(
-              key: const Key('hideKeyboard'),
-              tooltip: '收起键盘',
-              constraints: const BoxConstraints(minWidth: 44, minHeight: 36),
-              padding: EdgeInsets.zero,
-              icon: const Icon(Icons.keyboard_hide_outlined, size: 20),
-              onPressed: onHideKeyboard,
+        child: Row(
+          children: [
+            pad(
+              IconButton.outlined(
+                key: const Key('keyboard'),
+                tooltip: keyboardOpen ? '收起键盘' : '打开键盘',
+                constraints: const BoxConstraints(minWidth: 44, minHeight: 36),
+                padding: EdgeInsets.zero,
+                icon: Icon(
+                  keyboardOpen
+                      ? Icons.keyboard_hide_outlined
+                      : Icons.keyboard_outlined,
+                  size: 20,
+                ),
+                onPressed: keyboardOpen ? onHideKeyboard : onShowKeyboard,
+              ),
             ),
-          ),
-          key('Esc', TerminalKey.escape),
-          key('Tab', TerminalKey.tab),
-          modifier('Ctrl', ctrl, onCtrl),
-          modifier('Shift', shift, onShift),
-          modifier('Alt', alt, onAlt),
-          key('↑', TerminalKey.arrowUp),
-          key('↓', TerminalKey.arrowDown),
-          key('←', TerminalKey.arrowLeft),
-          key('→', TerminalKey.arrowRight),
-          key('Enter', TerminalKey.enter),
-        ],
+            Expanded(
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  key('Esc', TerminalKey.escape),
+                  key('Tab', TerminalKey.tab),
+                  modifier('Ctrl', ctrl, onCtrl),
+                  modifier('Shift', shift, onShift),
+                  modifier('Alt', alt, onAlt),
+                  key('↑', TerminalKey.arrowUp),
+                  key('↓', TerminalKey.arrowDown),
+                  key('←', TerminalKey.arrowLeft),
+                  key('→', TerminalKey.arrowRight),
+                ],
+              ),
+            ),
+            key('Enter', TerminalKey.enter),
+          ],
+        ),
       ),
     );
   }
 }
 
 const defaultFontSize = 13.0;
+
+/// The effort slider's track inset; the stop labels line up with it.
+const _sliderInset = 24.0;
+
+/// A few words on what an effort level is for.
+String effortHint(String effort) => switch (effort) {
+  'none' => '不思考',
+  'minimal' => '最快',
+  'low' => '快速',
+  'medium' => '均衡',
+  'high' => '深入',
+  'xhigh' => '更深入',
+  'max' => '最深入',
+  _ => '',
+};
 const minFontSize = 8.0;
 const maxFontSize = 28.0;
 
@@ -534,13 +608,15 @@ class _TerminalSettingsState extends State<TerminalSettings> {
   String _label(Map<String, dynamic> option) =>
       option['label'] as String? ?? option['value'] as String;
 
-  /// The runtime's efforts, narrowed to those the chosen model supports.
+  /// The runtime's efforts, narrowed to those the chosen model (or, before
+  /// one is chosen, the default model) supports.
   List<Map<String, dynamic>> get _efforts {
     final all = _options(_runtime, 'efforts');
+    final current = _model ?? _runtime?['defaultModel'] as String?;
     final model = _options(
       _runtime,
       'models',
-    ).where((m) => m['value'] == _model).firstOrNull;
+    ).where((m) => m['value'] == current).firstOrNull;
     final supported = ((model?['supportedEfforts'] as List?) ?? const [])
         .cast<String>();
     if (supported.isEmpty) return all;
@@ -614,42 +690,108 @@ class _TerminalSettingsState extends State<TerminalSettings> {
             ],
           ),
         ),
-        if (efforts.length == 1)
-          const SizedBox(height: 8)
-        else
+        if (efforts.length > 1)
           Slider(
             key: const Key('effort'),
+            padding: const EdgeInsets.symmetric(horizontal: _sliderInset),
             value: index,
             max: (efforts.length - 1).toDouble(),
             divisions: efforts.length - 1,
             onChanged: widget.canType
                 ? (v) => setState(() => _dragging = v)
                 : null,
-            onChangeEnd: (v) {
-              final effort = values[v.round()];
-              setState(() {
-                _dragging = null;
-                _effort = effort;
-              });
-              // Typed only when it differs from what was last sent from here.
-              if (effort != _sentEffort) {
-                _sentEffort = effort;
-                widget.onEffort(effort);
-              }
-            },
+            onChangeEnd: (v) => _chooseEffort(values[v.round()]),
           ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(_label(efforts.first), style: theme.textTheme.bodySmall),
-              if (efforts.length > 1)
-                Text(_label(efforts.last), style: theme.textTheme.bodySmall),
-            ],
-          ),
+        // Each stop's name and what it means, under the stop.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final count = efforts.length;
+            final step = count > 1
+                ? (width - 2 * _sliderInset) / (count - 1)
+                : 0.0;
+            final labelWidth = count > 1 ? step.clamp(48.0, 120.0) : width;
+            return SizedBox(
+              height: 44,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  for (var i = 0; i < count; i++)
+                    Positioned(
+                      left: count > 1
+                          ? (_sliderInset + i * step - labelWidth / 2).clamp(
+                              0.0,
+                              width - labelWidth,
+                            )
+                          : 0,
+                      width: labelWidth,
+                      child: _effortLabel(
+                        efforts[i],
+                        selected:
+                            i == index.round() &&
+                            (chosen >= 0 || _dragging != null),
+                        onTap: widget.canType
+                            ? () => _chooseEffort(values[i])
+                            : null,
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
         ),
       ],
+    );
+  }
+
+  void _chooseEffort(String effort) {
+    setState(() {
+      _dragging = null;
+      _effort = effort;
+    });
+    // Typed only when it differs from what was last sent from here.
+    if (effort != _sentEffort) {
+      _sentEffort = effort;
+      widget.onEffort(effort);
+    }
+  }
+
+  Widget _effortLabel(
+    Map<String, dynamic> effort, {
+    required bool selected,
+    required VoidCallback? onTap,
+  }) {
+    final theme = Theme.of(context);
+    final color = selected ? theme.colorScheme.primary : null;
+    final value = effort['value'] as String;
+    return InkWell(
+      key: Key('effort-$value'),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _label(effort),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: color,
+              fontWeight: selected ? FontWeight.w600 : null,
+            ),
+          ),
+          Text(
+            effortHint(value),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: color ?? theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -674,6 +816,19 @@ class _TerminalSettingsState extends State<TerminalSettings> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: TextButton(
+                  key: const Key('fontReset'),
+                  onPressed: _fontSize == defaultFontSize
+                      ? null
+                      : () => _font(defaultFontSize),
+                  child: const Text('恢复默认'),
+                ),
+              ),
+            ),
             ListTile(
               title: const Text('字体大小'),
               trailing: Row(
@@ -706,14 +861,6 @@ class _TerminalSettingsState extends State<TerminalSettings> {
                 ],
               ),
             ),
-            if (_fontSize != defaultFontSize)
-              Align(
-                alignment: AlignmentDirectional.centerEnd,
-                child: TextButton(
-                  onPressed: () => _font(defaultFontSize),
-                  child: const Text('恢复默认'),
-                ),
-              ),
             if (widget.runtime != null) const Divider(),
             if (_loading)
               const Padding(

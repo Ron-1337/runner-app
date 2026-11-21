@@ -550,18 +550,106 @@ void main() {
     );
   });
 
-  testWidgets('the key bar hides the keyboard', (tester) async {
+  testWidgets('the keyboard button hides the keyboard and brings it back', (
+    tester,
+  ) async {
     await open(tester);
     await tester.tap(find.text('Fix the build'));
     await tester.pumpAndSettle();
+    // The keyboard is up: it takes the bottom of the screen.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pump();
     bool focused() => tester
         .widget<TerminalView>(find.byType(TerminalView))
         .focusNode!
         .hasFocus;
     expect(focused(), isTrue);
-    await tester.tap(find.byKey(const Key('hideKeyboard')));
+    expect(tester.testTextInput.isVisible, isTrue);
+    expect(find.byTooltip('收起键盘'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('keyboard')));
+    tester.view.resetViewInsets();
     await tester.pump();
     expect(focused(), isFalse);
+    expect(tester.testTextInput.isVisible, isFalse);
+    expect(find.byTooltip('打开键盘'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('keyboard')));
+    await tester.pump();
+    expect(focused(), isTrue);
+    expect(tester.testTextInput.isVisible, isTrue);
+  });
+
+  testWidgets('Enter and the keyboard button stay put as the keys scroll', (
+    tester,
+  ) async {
+    await open(tester);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    final enter = tester.getTopLeft(find.text('Enter'));
+    final keyboard = tester.getTopLeft(find.byKey(const Key('keyboard')));
+    await tester.drag(find.text('Esc'), const Offset(-300, 0));
+    await tester.pumpAndSettle();
+    expect(tester.getTopLeft(find.text('Enter')), enter);
+    expect(tester.getTopLeft(find.byKey(const Key('keyboard'))), keyboard);
+  });
+
+  testWidgets('a Chinese keyboard composes, then sends the committed word', (
+    tester,
+  ) async {
+    final core = await open(tester);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    List<String> typed() => [
+      for (final input in core.of('input'))
+        utf8.decode(base64Decode(input['data'] as String)),
+    ];
+    final input = tester.testTextInput;
+    // Pinyin while composing: shown, not sent.
+    input.updateEditingValue(
+      const TextEditingValue(
+        text: '  nihao',
+        selection: TextSelection.collapsed(offset: 7),
+        composing: TextRange(start: 2, end: 7),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('nihao'), findsOneWidget);
+    expect(typed(), isEmpty);
+
+    input.updateEditingValue(
+      const TextEditingValue(
+        text: '  你好',
+        selection: TextSelection.collapsed(offset: 4),
+      ),
+    );
+    await tester.pump();
+    expect(find.byKey(const Key('composing')), findsNothing);
+    expect(typed(), ['你好']);
+
+    // Backspace and Enter from the keyboard.
+    input.updateEditingValue(
+      const TextEditingValue(
+        text: ' ',
+        selection: TextSelection.collapsed(offset: 1),
+      ),
+    );
+    input.updateEditingValue(
+      const TextEditingValue(
+        text: '  \n',
+        selection: TextSelection.collapsed(offset: 3),
+      ),
+    );
+    await tester.pump();
+    expect(typed(), ['你好', '\x7f', '\r']);
+    final config = input.setClientArgs!['inputType'] as Map;
+    expect(config['name'], 'TextInputType.multiline');
+    expect(
+      input.setClientArgs!['enableSuggestions'],
+      isTrue,
+      reason: 'false makes Android offer only Latin letters',
+    );
   });
 
   testWidgets('without a known runtime only the font size is offered', (

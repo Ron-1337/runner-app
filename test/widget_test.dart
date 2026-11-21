@@ -99,26 +99,73 @@ Future<void> openDialog(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 500));
 }
 
+/// URLs the sign-in browser was opened at; it stays open, as a person reading
+/// the page would leave it.
+final browsed = <String>[];
+
 void main() {
-  test('validateOrigin accepts HTTPS and local HTTP only', () {
+  setUp(() {
+    browsed.clear();
+    openSignInBrowser = (url) {
+      browsed.add(url);
+      return Completer<void>().future;
+    };
+  });
+
+  test('validateOrigin accepts HTTPS and HTTP', () {
     expect(validateOrigin('https://runner.example.com'), isNull);
     expect(validateOrigin('http://localhost:8080'), isNull);
-    expect(validateOrigin('http://127.0.0.1:8080'), isNull);
-    expect(validateOrigin('http://runner.example.com'), isNotNull);
+    expect(validateOrigin('http://runner.example.com'), isNull);
+    expect(validateOrigin('ftp://runner.example.com'), isNotNull);
     expect(validateOrigin('runner.example.com'), isNotNull);
   });
 
-  testWidgets('shows an error for a non-HTTPS origin', (tester) async {
+  testWidgets('shows an error for an address that is not HTTP(S)', (
+    tester,
+  ) async {
     FlutterSecureStorage.setMockInitialValues({});
     await tester.pumpWidget(RunnerApp(core: FakeCore(), store: Store()));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('origin')),
-      'http://example.com',
+      'ftp://example.com',
     );
     await tester.tap(find.byType(FilledButton));
     await tester.pump();
-    expect(find.text('只支持 HTTPS 地址'), findsOneWidget);
+    expect(find.text('只支持 HTTPS 或 HTTP 地址'), findsOneWidget);
+  });
+
+  testWidgets('an HTTP address is confirmed, after a second', (tester) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final core = FakeCore();
+    await tester.pumpWidget(RunnerApp(core: core, store: Store()));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('origin')),
+      'http://192.168.1.5:8080',
+    );
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    expect(find.textContaining('未加密'), findsWidgets);
+    FilledButton proceed() =>
+        tester.widget<FilledButton>(find.byKey(const Key('httpProceed')));
+    expect(proceed().onPressed, isNull, reason: 'held for a second');
+    await tester.pump(const Duration(milliseconds: 1100));
+    expect(proceed().onPressed, isNotNull);
+
+    // Cancelling stays on the page and starts nothing.
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(core.calls.where((c) => c.$1 == 'startEnrollment'), isEmpty);
+
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.tap(find.byKey(const Key('httpProceed')));
+    // The code page spins while it waits, so it never settles.
+    await tester.pump(const Duration(milliseconds: 500));
+    final start = core.calls.lastWhere((c) => c.$1 == 'startEnrollment');
+    expect(start.$2['origin'], 'http://192.168.1.5:8080');
   });
 
   testWidgets('signs in, pairs by PIN and types into a terminal', (
@@ -149,6 +196,8 @@ void main() {
     expect(find.text('BCDF-GHJK'), findsOneWidget);
     final start = core.calls.lastWhere((c) => c.$1 == 'startEnrollment');
     expect((start.$2['device'] as Map)['name'], 'Work phone');
+    expect(browsed, hasLength(1), reason: 'opens the approval page itself');
+    expect(Uri.parse(browsed.single).queryParameters['app'], '1');
     await tester.pump(const Duration(seconds: 1));
     expect(core.calls.last.$1, 'pollEnrollment', reason: 'still pending');
     expect(find.text('BCDF-GHJK'), findsOneWidget);
