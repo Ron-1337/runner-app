@@ -26,12 +26,28 @@ class ServerPage extends StatefulWidget {
 
 class _ServerPageState extends State<ServerPage> {
   late final _origin = TextEditingController(text: widget.initialOrigin);
+  // Filled at once with the name known so far, then with the model once
+  // deviceInfo has it, unless the person has typed a name meanwhile.
+  late final _initialName = deviceName();
+  late final _name = TextEditingController(text: _initialName);
   String? _error;
   var _busy = false;
 
   @override
+  void initState() {
+    super.initState();
+    deviceInfo().then((device) {
+      final model = device['name'] as String?;
+      if (mounted && model != null && _name.text == _initialName) {
+        _name.text = model;
+      }
+    });
+  }
+
+  @override
   void dispose() {
     _origin.dispose();
+    _name.dispose();
     super.dispose();
   }
 
@@ -42,9 +58,14 @@ class _ServerPageState extends State<ServerPage> {
     final origin = _origin.text.trim();
     setState(() => _busy = true);
     try {
-      final start = await Services.of(context).core.call('startEnrollment', {
+      final core = Services.of(context).core;
+      // Signing in does not wait for the plugins; what they found so far is used.
+      final device = {...knownDeviceInfo()};
+      final name = cleanDeviceName(_name.text);
+      if (name.isNotEmpty) device['name'] = name;
+      final start = await core.call('startEnrollment', {
         'origin': origin,
-        'device': deviceInfo(),
+        'device': device,
       });
       if (!mounted) return;
       await Navigator.of(context).push(
@@ -84,6 +105,17 @@ class _ServerPageState extends State<ServerPage> {
                 hintText: 'https://runner.example.com',
                 errorText: _error,
                 errorMaxLines: 3,
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              key: const Key('deviceName'),
+              controller: _name,
+              maxLength: 64,
+              decoration: const InputDecoration(
+                labelText: '设备名称',
+                helperText: '批准登录时和电脑上会显示这个名字',
               ),
               onSubmitted: (_) => _submit(),
             ),

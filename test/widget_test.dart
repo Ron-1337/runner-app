@@ -135,12 +135,20 @@ void main() {
       find.byKey(const Key('origin')),
       'https://runner.example.com',
     );
+    final name = find.byKey(const Key('deviceName'));
+    expect(
+      tester.widget<TextField>(name).controller!.text,
+      isNotEmpty,
+      reason: 'the name defaults to the model',
+    );
+    await tester.enterText(name, '  Work phone ');
     await tester.tap(find.byType(FilledButton));
     // The waiting spinner never settles, so pump through the page transition.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('BCDF-GHJK'), findsOneWidget);
-    expect(core.calls.last.$2['device'], isA<Map<String, Object?>>());
+    final start = core.calls.lastWhere((c) => c.$1 == 'startEnrollment');
+    expect((start.$2['device'] as Map)['name'], 'Work phone');
     await tester.pump(const Duration(seconds: 1));
     expect(core.calls.last.$1, 'pollEnrollment', reason: 'still pending');
     expect(find.text('BCDF-GHJK'), findsOneWidget);

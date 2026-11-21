@@ -10,6 +10,9 @@ import 'services.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // Learns the phone's model early, so pairing names it even when the app
+  // opens straight to the computers.
+  deviceInfo();
   runApp(
     RunnerApp(
       core: NativeCore.instance,
