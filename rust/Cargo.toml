@@ -23,7 +23,7 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 
 [dev-dependencies]
 # A real relay for the end-to-end test; its host side is played with runner-core.
-runner-server = { git = "https://github.com/Ron-1337/runner-server", rev = "7953766" }
+runner-server = { git = "https://github.com/Ron-1337/runner-server", rev = "1e8317d" }
 axum = "0.8"
 tempfile = "3"
 
