@@ -14,6 +14,18 @@ pub type Socket = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 const ENROLL: &str = "/api/runner_server.v1.HostEnrollmentService";
 const CLIENT: &str = "/api/runner_server.v1.HostClientService";
 const CLIENT_SUBPROTOCOL: &str = "runner-client.v1";
+const NOTIFY: &str = "/api/runner_server.v1.NotifyService";
+
+/// The NotifyService methods the app may call.
+const NOTIFY_METHODS: [&str; 7] = [
+    "GetSettings",
+    "SetSettings",
+    "Test",
+    "ListWatchers",
+    "PairWatcher",
+    "UnpairWatcher",
+    "ClaimSession",
+];
 
 /// What the phone tells the server about itself when it signs in.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -193,6 +205,36 @@ pub async fn sign_out(origin: &str, credential: &str) -> Result<Value, String> {
     .await
 }
 
+/// Calls one NotifyService [method] (push-notification settings, the server's
+/// watchers, session claims) with the phone's credential. A server without
+/// the service answers 404 without an error body.
+pub async fn notify(
+    origin: &str,
+    credential: &str,
+    method: &str,
+    body: Value,
+) -> Result<Value, String> {
+    if !NOTIFY_METHODS.contains(&method) {
+        return Err(format!("未知的通知操作：{method}"));
+    }
+    let body = if body.is_null() { json!({}) } else { body };
+    let response = send(
+        origin,
+        &format!("{NOTIFY}/{method}"),
+        Some(credential),
+        body,
+    )
+    .await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        let text = response.text().await.unwrap_or_default();
+        return Err(serde_json::from_str::<Value>(&text)
+            .ok()
+            .and_then(|v| v["message"].as_str().map(str::to_owned))
+            .unwrap_or_else(|| "服务器不支持推送通知，请升级 runner-server".into()));
+    }
+    reply(response).await
+}
+
 /// Opens `/relay/client` to one computer: the relay's end of a channel.
 pub async fn open_route(origin: &str, credential: &str, computer: &str) -> Result<Socket, String> {
     let base = origin.replacen("http", "ws", 1);
@@ -225,7 +267,16 @@ pub async fn open_route(origin: &str, credential: &str, computer: &str) -> Resul
 
 #[cfg(test)]
 mod tests {
-    use super::{Device, enrollment_request, origin};
+    use super::{Device, enrollment_request, notify, origin};
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn notify_takes_only_the_service_methods() {
+        let error = notify("http://127.0.0.1:1", "c", "DeleteEverything", json!({}))
+            .await
+            .unwrap_err();
+        assert!(error.contains("DeleteEverything"), "{error}");
+    }
 
     #[test]
     fn phones_enroll_as_official_clients() {

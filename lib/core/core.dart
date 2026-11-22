@@ -35,6 +35,24 @@ abstract class Core {
   /// Sends a companion request on an open route.
   Future<dynamic> request(int route, Map<String, Object?> message) =>
       call('request', {'route': route, 'message': message});
+
+  /// Calls runner-server's NotifyService [method] (`GetSettings`,
+  /// `SetSettings`, `Test`, `ListWatchers`, `PairWatcher`, `UnpairWatcher`,
+  /// `ClaimSession`) as the account at [origin]; completes with its reply.
+  Future<Map<String, dynamic>> notify(
+    String origin,
+    String credential,
+    String method, [
+    Map<String, Object?> body = const {},
+  ]) async {
+    final reply = await call('notify', {
+      'origin': origin,
+      'credential': credential,
+      'method': method,
+      'body': body,
+    });
+    return reply is Map<String, dynamic> ? reply : <String, dynamic>{};
+  }
 }
 
 typedef _EventNative = Void Function(Pointer<Utf8>);

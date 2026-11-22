@@ -135,6 +135,8 @@ class _ComputerPageState extends State<ComputerPage> {
           session: session,
           title: title,
           runtime: runtime,
+          account: widget.account,
+          computer: widget.computer['id'] as String?,
         ),
       ),
     );

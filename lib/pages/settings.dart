@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../core/store.dart';
 import '../services.dart';
+import 'notifications.dart';
 import 'terminal.dart' show defaultFontSize, maxFontSize, minFontSize;
 
 /// The app's settings: the terminal's font size and return key, the accounts,
@@ -161,6 +162,27 @@ class _SettingsViewState extends State<SettingsView> {
           title: const Text('添加账户'),
           onTap: widget.onAddAccount,
         ),
+        if (widget.accounts.isNotEmpty) ...[
+          const Divider(),
+          _heading('通知'),
+          for (final account in widget.accounts)
+            ListTile(
+              key: Key('settingsNotifications.${account.id}'),
+              leading: const Icon(Icons.notifications_outlined),
+              title: const Text('推送通知'),
+              subtitle: Text(
+                widget.accounts.length > 1
+                    ? account.label
+                    : '会话需要输入、完成或失败时，由服务器推送',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => NotificationsPage(account: account),
+                ),
+              ),
+            ),
+        ],
         const Divider(),
         _heading('关于'),
         ListTile(

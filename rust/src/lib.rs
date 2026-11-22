@@ -79,6 +79,15 @@ enum Op {
     ListComputers { origin: String, credential: String },
     #[serde(rename_all = "camelCase")]
     SignOut { origin: String, credential: String },
+    /// Calls a NotifyService method; the reply is the server's JSON.
+    #[serde(rename_all = "camelCase")]
+    Notify {
+        origin: String,
+        credential: String,
+        method: String,
+        #[serde(default)]
+        body: Value,
+    },
     /// Pairs with a computer by PIN and keeps the channel open as a route.
     #[serde(rename_all = "camelCase")]
     Pair {
@@ -192,6 +201,12 @@ async fn execute(
         Op::SignOut { origin, credential } => {
             api::sign_out(&api::origin(&origin)?, &credential).await
         }
+        Op::Notify {
+            origin,
+            credential,
+            method,
+            body,
+        } => api::notify(&api::origin(&origin)?, &credential, &method, body).await,
         Op::Pair {
             origin,
             credential,

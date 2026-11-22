@@ -9,6 +9,7 @@ import '../core/modifiers.dart';
 import '../core/mouse.dart';
 import '../core/remote.dart';
 import '../core/sgr.dart';
+import '../core/store.dart';
 import '../services.dart';
 import 'terminal_keyboard.dart';
 
@@ -24,6 +25,8 @@ class TerminalPage extends StatefulWidget {
     required this.session,
     required this.title,
     this.runtime,
+    this.account,
+    this.computer,
   });
 
   final Remote remote;
@@ -32,6 +35,12 @@ class TerminalPage extends StatefulWidget {
 
   /// The agent runtime of the session (such as `claude-code`); null for a shell.
   final String? runtime;
+
+  /// The account and computer id the session is under; when known, taking
+  /// control tells runner-server, which sends this session's notifications
+  /// to this phone from then on.
+  final Account? account;
+  final String? computer;
 
   @override
   State<TerminalPage> createState() => _TerminalPageState();
@@ -170,16 +179,35 @@ class _TerminalPageState extends State<TerminalPage> {
 
   bool get _live => _ended == null && widget.remote.connected;
 
-  Future<void> _send(Map<String, Object?> message) async {
+  /// Sends [message]; completes with whether the computer accepted it.
+  Future<bool> _send(Map<String, Object?> message) async {
     try {
       await widget.remote.core.request(widget.remote.route, message);
+      return true;
     } catch (e) {
       if (mounted && _live) showError(context, e);
+      return false;
     }
   }
 
-  void _attach((int, int) size, String control) {
-    _send({
+  /// Tells runner-server this phone took control of the session, so its
+  /// notifications come here. Servers without notifications answer 404.
+  void _claim() {
+    final account = widget.account;
+    final computer = widget.computer;
+    if (account == null || computer == null) return;
+    unawaited(
+      widget.remote.core
+          .notify(account.origin, account.credential, 'ClaimSession', {
+            'computer': computer,
+            'session': widget.session,
+          })
+          .then((_) {}, onError: (_) {}),
+    );
+  }
+
+  Future<bool> _attach((int, int) size, String control) {
+    return _send({
       'type': 'attach',
       'session': widget.session,
       'cols': size.$1,
@@ -194,7 +222,9 @@ class _TerminalPageState extends State<TerminalPage> {
     if (!widget.remote.connected) return;
     if (!_attached) {
       _attached = true;
-      _attach((cols, rows), 'take');
+      _attach((cols, rows), 'take').then((ok) {
+        if (ok) _claim();
+      });
     } else if (_controllerKind == 'you') {
       _send({
         'type': 'viewport',
@@ -213,6 +243,8 @@ class _TerminalPageState extends State<TerminalPage> {
       'session': widget.session,
       'cols': size.$1,
       'rows': size.$2,
+    }).then((ok) {
+      if (ok) _claim();
     });
   }
 

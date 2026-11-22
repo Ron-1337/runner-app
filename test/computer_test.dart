@@ -104,6 +104,9 @@ Map<String, dynamic> overview() => {
 /// A computer behind a route: answers companion requests and records them.
 class FakeComputer extends Core {
   final requests = <Map<String, Object?>>[];
+
+  /// NotifyService calls to the server: (method, body).
+  final notified = <(Object?, Object?)>[];
   final _routes = StreamController<RouteEvent>.broadcast();
   final answers = <String, Object? Function(Map<String, Object?>)>{
     'overview': (_) => overview(),
@@ -185,6 +188,7 @@ class FakeComputer extends Core {
 
   @override
   Future<dynamic> call(String op, Map<String, Object?> args) async {
+    if (op == 'notify') notified.add((args['method'], args['body']));
     if (op != 'request') return null;
     // Checked by tearDown: an expect here would run inside the widget's code.
     if (args['route'] != route) staleRoutes.add(args['route']);
@@ -472,6 +476,10 @@ void main() {
     await tester.tap(find.text('Fix the build'));
     await tester.pumpAndSettle();
     expect(core.of('attach').single['control'], 'take');
+    // The server sends this session's notifications here from now on.
+    final (method, body) = core.notified.single;
+    expect(method, 'ClaimSession');
+    expect(body, {'computer': '42', 'session': 's1'});
     final style = tester
         .widget<TerminalView>(find.byType(TerminalView))
         .textStyle;
