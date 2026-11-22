@@ -201,8 +201,9 @@ void main() {
   ) async {
     FlutterSecureStorage.setMockInitialValues({});
     final store = Store();
-    final core = FakeCore()
-      ..serverVersion = knownDeviceInfo()['appVersion'] as String;
+    // Another build of the same release: the server and app build apart.
+    final release = releaseVersion(knownDeviceInfo()['appVersion'] as String);
+    final core = FakeCore()..serverVersion = 'v$release(99)-ffffff';
     final account = await signIn(tester, core, store);
     expect(account.serverVersion, core.serverVersion);
     expect(account.official, isFalse);
@@ -216,18 +217,23 @@ void main() {
   ) async {
     FlutterSecureStorage.setMockInitialValues({});
     final store = Store();
-    final core = FakeCore()..serverVersion = '9.9.9';
+    final core = FakeCore()..serverVersion = 'v9.9.9(3)-abcdef';
     final account = await signIn(tester, core, store);
-    expect(account.serverVersion, '9.9.9', reason: 'saved before the warning');
+    expect(account.serverVersion, 'v9.9.9(3)-abcdef');
     expect(find.byKey(const Key('versionMismatch')), findsOneWidget);
-    expect(find.textContaining('runner-server 9.9.9'), findsOneWidget);
+    expect(
+      find.textContaining('Runner-Server v9.9.9(3)-abcdef'),
+      findsOneWidget,
+    );
     await tester.tap(find.text('继续'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('versionMismatch')), findsNothing);
     expect(find.text('studio'), findsOneWidget);
   });
 
-  test('versions compare without the build number', () {
+  test('versions read vX.Y.Z(B)-commit and compare by release', () {
+    expect(versionLabel('0.1.2'), 'v0.1.2(0)-000000', reason: 'a local build');
+    expect(releaseVersion('v0.1.2(57)-1a2b3c'), '0.1.2');
     expect(releaseVersion('0.1.2+4'), '0.1.2');
     expect(releaseVersion('0.1.2'), '0.1.2');
   });

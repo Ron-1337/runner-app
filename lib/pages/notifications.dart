@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../core/core.dart';
 import '../core/store.dart';
 import '../services.dart';
 
@@ -102,12 +103,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
     super.dispose();
   }
 
+  /// Calls NotifyService. Only runner-server has it, so nothing is sent to a
+  /// server that did not say it is one.
   Future<Map<String, dynamic>> _call(
     String method, [
     Map<String, Object?> body = const {},
-  ]) => Services.of(
-    context,
-  ).core.notify(widget.account.origin, widget.account.credential, method, body);
+  ]) async {
+    if (widget.account.official) {
+      throw CoreException('官方服务器不支持推送通知');
+    }
+    return Services.of(context).core.notify(
+      widget.account.origin,
+      widget.account.credential,
+      method,
+      body,
+    );
+  }
 
   Future<void> _load() async {
     setState(() {

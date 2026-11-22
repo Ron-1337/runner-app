@@ -26,6 +26,12 @@ class SettingsView extends StatefulWidget {
 }
 
 class _SettingsViewState extends State<SettingsView> {
+  /// The accounts on runner-server, which pushes notifications.
+  List<Account> get _notifiable => [
+    for (final account in widget.accounts)
+      if (!account.official) account,
+  ];
+
   double _fontSize = defaultFontSize;
   var _enterSends = false;
   Map<String, Object?> _device = knownDeviceInfo();
@@ -146,7 +152,7 @@ class _SettingsViewState extends State<SettingsView> {
             title: Text(account.label),
             subtitle: Text(
               '${account.origin}\n'
-              '${account.official ? '官方服务器' : '自建服务器 v${account.serverVersion}'}',
+              '${account.official ? '官方服务器' : 'Runner-Server ${account.serverVersion}'}',
             ),
             isThreeLine: true,
             trailing: PopupMenuButton<String>(
@@ -166,18 +172,17 @@ class _SettingsViewState extends State<SettingsView> {
           title: const Text('添加账户'),
           onTap: widget.onAddAccount,
         ),
-        if (widget.accounts.isNotEmpty) ...[
+        // Push notifications are runner-server's; the official service has none.
+        if (_notifiable.isNotEmpty) ...[
           const Divider(),
           _heading('通知'),
-          for (final account in widget.accounts)
+          for (final account in _notifiable)
             ListTile(
               key: Key('settingsNotifications.${account.id}'),
               leading: const Icon(Icons.notifications_outlined),
               title: const Text('推送通知'),
               subtitle: Text(
-                widget.accounts.length > 1
-                    ? account.label
-                    : '会话需要输入、完成或失败时，由服务器推送',
+                _notifiable.length > 1 ? account.label : '会话需要输入、完成或失败时，由服务器推送',
               ),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(

@@ -202,6 +202,7 @@ class FakeComputer extends Core {
 Future<FakeComputer> open(
   WidgetTester tester, {
   List<String> features = allFeatures,
+  String? serverVersion = 'v0.1.2(7)-1a2b3c',
 }) async {
   FlutterSecureStorage.setMockInitialValues({});
   final core = FakeComputer();
@@ -223,6 +224,7 @@ Future<FakeComputer> open(
             origin: 'https://r.example',
             credential: 'c',
             username: 'alice',
+            serverVersion: serverVersion,
           ),
           computer: const {'id': '42', 'name': 'studio'},
           remote: Remote(
@@ -469,6 +471,16 @@ void main() {
     await tester.pump();
     expect(core.reopened, 1);
     expect(find.byKey(const Key('reconnect')), findsOneWidget);
+  });
+
+  testWidgets('taking a session on the official service sends no claim', (
+    tester,
+  ) async {
+    final core = await open(tester, serverVersion: null);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    expect(core.of('attach').single['control'], 'take');
+    expect(core.notified, isEmpty, reason: 'it has no notifications');
   });
 
   testWidgets('a terminal attaches again after a reconnect', (tester) async {

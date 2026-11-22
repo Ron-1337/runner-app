@@ -47,12 +47,16 @@ class PairedCore extends FakeCore {
   }
 }
 
-Future<(PairedCore, Store)> home(WidgetTester tester) async {
+Future<(PairedCore, Store)> home(
+  WidgetTester tester, {
+  String? serverVersion,
+}) async {
   FlutterSecureStorage.setMockInitialValues({});
   final store = Store();
   final account = await store.addAccount(
     origin: 'https://runner.example.com',
     credential: 'rhc_secret',
+    serverVersion: serverVersion,
     username: 'alice',
   );
   await store.savePairing(
@@ -123,4 +127,34 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('添加账户'), findsOneWidget);
   });
+
+  testWidgets(
+    'settings call the official service so and offer no notifications',
+    (tester) async {
+      final (core, _) = await home(tester);
+      await tester.tap(find.byKey(const Key('tabSettings')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('官方服务器'), findsOneWidget);
+      // The section would sit just above 关于, below the fold.
+      await tester.scrollUntilVisible(find.text('关于'), 300);
+      expect(find.text('推送通知'), findsNothing, reason: 'it has none');
+      expect(core.calls.where((c) => c.$1 == 'notify'), isEmpty);
+    },
+  );
+
+  testWidgets(
+    'settings name Runner-Server with its version and offer notifications',
+    (tester) async {
+      await home(tester, serverVersion: 'v0.1.2(7)-1a2b3c');
+      await tester.tap(find.byKey(const Key('tabSettings')));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Runner-Server v0.1.2(7)-1a2b3c'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('自建'), findsNothing);
+      await tester.scrollUntilVisible(find.text('推送通知'), 300);
+      expect(find.text('推送通知'), findsOneWidget);
+    },
+  );
 }

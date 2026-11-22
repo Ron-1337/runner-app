@@ -5,7 +5,8 @@ Runner 远程控制的手机客户端（Android 和 iOS），通过 runner-serve
 ## 功能
 
 - 以手机身份登录 runner-server（device flow，在浏览器中批准）；手机不会出现在电脑列表里。登录接口与官方 Runner 服务器一致，也可以直接登录官方服务器（推送通知是 runner-server 独有的，官方服务器上不可用）
-- 自建 runner-server 在登录成功时告知版本，设置里会显示“自建服务器 vX”或“官方服务器”；版本与 App 不一致时会提醒，可以继续使用
+- runner-server 在登录成功时告知版本，设置里显示“Runner-Server vX.Y.Z(B)-commit”或“官方服务器”；发行版本（X.Y.Z）与 App 不一致时会提醒，可以继续使用。推送通知只对 runner-server 开放，对官方服务器不发送任何通知相关的请求
+- 版本号格式为 `vX.Y.Z(B)-commit`：`B` 是 GitHub Actions 的构建次数，`commit` 是构建所用提交的前 6 位（本地构建为 `(0)-000000`）
 - 多个账户：可添加多个账户，每个账户可以在不同的服务器上；电脑列表按账户分组，每个账户可单独重新登录或退出（退出只删除该账户和它下面的配对）
 - 查看账号下的电脑和在线状态
 - 用电脑的 6 位 PIN 配对（CPace + Noise `XXpsk3`），之后用保存的密钥直接连接（Noise `IK`）

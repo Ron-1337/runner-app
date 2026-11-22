@@ -191,11 +191,12 @@ class _TerminalPageState extends State<TerminalPage> {
   }
 
   /// Tells runner-server this phone took control of the session, so its
-  /// notifications come here. Servers without notifications answer 404.
+  /// notifications come here. Only runner-server has notifications; nothing
+  /// is sent to any other server.
   void _claim() {
     final account = widget.account;
     final computer = widget.computer;
-    if (account == null || computer == null) return;
+    if (account == null || account.official || computer == null) return;
     unawaited(
       widget.remote.core
           .notify(account.origin, account.credential, 'ClaimSession', {

@@ -214,11 +214,8 @@ Future<void> Function(String url) openSignInBrowser = (url) =>
       callbackUrlScheme: authCallbackScheme,
     );
 
-/// The version without its build number: `0.1.2+4` is `0.1.2`.
-String releaseVersion(String version) => version.split('+').first.trim();
-
-/// Tells the person when runner-server is not the version of this app, which
-/// is released with it; they may carry on either way.
+/// Tells the person when runner-server is not the release of this app, which
+/// is released with it (builds and commits may differ); they may carry on.
 Future<void> warnIfVersionsDiffer(
   BuildContext context,
   String serverVersion,
@@ -232,8 +229,8 @@ Future<void> warnIfVersionsDiffer(
       key: const Key('versionMismatch'),
       title: const Text('版本不一致'),
       content: Text(
-        '服务器 runner-server ${releaseVersion(serverVersion)}，'
-        'Runner Remote ${releaseVersion(app)}，部分功能可能无法正常使用。',
+        '服务器 Runner-Server $serverVersion，'
+        'Runner Remote $app，部分功能可能无法正常使用。',
       ),
       actions: [
         FilledButton(

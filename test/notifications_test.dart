@@ -80,6 +80,7 @@ Future<NotifyCore> _open(WidgetTester tester) async {
             origin: 'https://r.example',
             credential: 'c',
             username: 'alice',
+            serverVersion: 'v0.1.2(7)-1a2b3c',
           ),
         ),
       ),

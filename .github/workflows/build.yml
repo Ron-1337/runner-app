@@ -13,6 +13,11 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   FLUTTER_VERSION: 3.50.1
+  # The app shows its version as vX.Y.Z(B)-commit: B is this workflow's run
+  # number, commit the first six characters of the commit built (a pull
+  # request's head, not its merge).
+  RUNNER_BUILD_NUMBER: ${{ github.run_number }}
+  RUNNER_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
   test:
@@ -73,7 +78,7 @@ jobs:
           cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o ../android/app/src/main/jniLibs build --release
       - run: flutter pub get
       # Release builds are signed with the debug key until a keystore is configured.
-      - run: flutter build apk --release --split-per-abi
+      - run: flutter build apk --release --split-per-abi --dart-define=BUILD_NUMBER="$RUNNER_BUILD_NUMBER" --dart-define=COMMIT="${RUNNER_COMMIT::6}"
       - name: Package
         run: |
           mkdir -p dist
@@ -110,7 +115,7 @@ jobs:
         working-directory: rust
         run: cargo build --release --target aarch64-apple-ios
       - run: flutter pub get
-      - run: flutter build ios --release --no-codesign
+      - run: flutter build ios --release --no-codesign --dart-define=BUILD_NUMBER="$RUNNER_BUILD_NUMBER" --dart-define=COMMIT="${RUNNER_COMMIT::6}"
       # Dart finds the core with dlsym, so its entry points must survive linking and stripping.
       - name: Check the Rust core is linked
         run: |

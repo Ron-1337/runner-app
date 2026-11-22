@@ -48,7 +48,7 @@ Future<Map<String, Object?>> deviceInfo() async {
     }
   } catch (_) {}
   try {
-    appVersion = (await PackageInfo.fromPlatform()).version;
+    appVersion = versionLabel((await PackageInfo.fromPlatform()).version);
   } catch (_) {}
   return _known = {
     ...info,
@@ -70,10 +70,26 @@ Map<String, Object?> knownDeviceInfo() =>
           ? 'android'
           : Platform.operatingSystem,
       'osVersion': Platform.operatingSystemVersion,
-      'appVersion': '0.1.2',
+      'appVersion': versionLabel('0.1.2'),
     };
 
 Map<String, Object?>? _known;
+
+/// This build's number and commit; Actions passes them with `--dart-define`.
+const _buildNumber = String.fromEnvironment('BUILD_NUMBER', defaultValue: '0');
+const _commit = String.fromEnvironment('COMMIT', defaultValue: '000000');
+
+/// The app's version as it is shown and sent, `vX.Y.Z(B)-commit`: the
+/// release [version], the build number and the commit's first six characters.
+String versionLabel(String version) {
+  final commit = _commit.length > 6 ? _commit.substring(0, 6) : _commit;
+  return 'v${releaseVersion(version)}($_buildNumber)-$commit';
+}
+
+/// The release part of a version, `X.Y.Z`: `v0.1.2(57)-1a2b3c` and `0.1.2+4`
+/// are both `0.1.2`.
+String releaseVersion(String version) =>
+    RegExp(r'\d+\.\d+\.\d+').firstMatch(version)?.group(0) ?? version.trim();
 
 /// The model [deviceInfo] found, once it has run.
 String? _model;
