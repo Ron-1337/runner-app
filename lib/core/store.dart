@@ -11,6 +11,7 @@ class Account {
     required this.origin,
     required this.credential,
     required this.username,
+    this.serverVersion,
   });
 
   /// Stable for the life of the account on this phone; its pairings are kept under it.
@@ -18,6 +19,13 @@ class Account {
   final String origin;
   final String credential;
   final String username;
+
+  /// The version runner-server told this phone when it signed in; null for
+  /// the official service, which tells none.
+  final String? serverVersion;
+
+  /// Whether this account is on the official service rather than a runner-server.
+  bool get official => serverVersion == null;
 
   /// The server's host, for telling accounts apart.
   String get host {
@@ -33,11 +41,17 @@ class Account {
   bool sameAs(String origin, String username) =>
       sameOrigin(this.origin, origin) && this.username == username;
 
-  Account copyWith({String? credential}) => Account(
+  /// This account signed in again, with a new credential from a server that
+  /// may have changed version.
+  Account signedInAgain({
+    required String credential,
+    required String? serverVersion,
+  }) => Account(
     id: id,
     origin: origin,
-    credential: credential ?? this.credential,
+    credential: credential,
     username: username,
+    serverVersion: serverVersion,
   );
 
   Map<String, Object?> toJson() => {
@@ -45,6 +59,7 @@ class Account {
     'origin': origin,
     'credential': credential,
     'username': username,
+    'serverVersion': serverVersion,
   };
 
   static Account fromJson(Map<String, dynamic> json) => Account(
@@ -52,6 +67,7 @@ class Account {
     origin: json['origin'] as String,
     credential: json['credential'] as String,
     username: json['username'] as String? ?? '',
+    serverVersion: json['serverVersion'] as String?,
   );
 }
 
@@ -157,12 +173,16 @@ class Store {
     required String origin,
     required String credential,
     required String username,
+    String? serverVersion,
   }) async {
     final all = await accounts();
     final index = all.indexWhere((a) => a.sameAs(origin, username));
     final Account account;
     if (index >= 0) {
-      account = all[index].copyWith(credential: credential);
+      account = all[index].signedInAgain(
+        credential: credential,
+        serverVersion: serverVersion,
+      );
       all[index] = account;
     } else {
       account = Account(
@@ -170,6 +190,7 @@ class Store {
         origin: origin,
         credential: credential,
         username: username,
+        serverVersion: serverVersion,
       );
       all.add(account);
     }

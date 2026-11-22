@@ -144,7 +144,11 @@ class _SettingsViewState extends State<SettingsView> {
           ListTile(
             leading: const Icon(Icons.account_circle_outlined),
             title: Text(account.label),
-            subtitle: Text(account.origin),
+            subtitle: Text(
+              '${account.origin}\n'
+              '${account.official ? '官方服务器' : '自建服务器 v${account.serverVersion}'}',
+            ),
+            isThreeLine: true,
             trailing: PopupMenuButton<String>(
               key: Key('settingsAccount.${account.id}'),
               onSelected: (action) => action == 'signInAgain'

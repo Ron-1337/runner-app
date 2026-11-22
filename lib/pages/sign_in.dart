@@ -214,6 +214,37 @@ Future<void> Function(String url) openSignInBrowser = (url) =>
       callbackUrlScheme: authCallbackScheme,
     );
 
+/// The version without its build number: `0.1.2+4` is `0.1.2`.
+String releaseVersion(String version) => version.split('+').first.trim();
+
+/// Tells the person when runner-server is not the version of this app, which
+/// is released with it; they may carry on either way.
+Future<void> warnIfVersionsDiffer(
+  BuildContext context,
+  String serverVersion,
+) async {
+  final app = knownDeviceInfo()['appVersion'] as String? ?? '';
+  if (releaseVersion(serverVersion) == releaseVersion(app)) return;
+  await showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => AlertDialog(
+      key: const Key('versionMismatch'),
+      title: const Text('版本不一致'),
+      content: Text(
+        '服务器 runner-server ${releaseVersion(serverVersion)}，'
+        'Runner Remote ${releaseVersion(app)}，部分功能可能无法正常使用。',
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('继续'),
+        ),
+      ],
+    ),
+  );
+}
+
 /// Shows the sign-in code and waits while the person approves it in a browser.
 class EnrollPage extends StatefulWidget {
   const EnrollPage({super.key, required this.origin, required this.start});
@@ -268,6 +299,8 @@ class _EnrollPageState extends State<EnrollPage> {
       switch (result['state']) {
         case 'ENROLLMENT_STATE_APPROVED':
           _timer?.cancel();
+          // Only runner-server sends its version, and only now.
+          final serverVersion = result['serverVersion'] as String?;
           await services.store.addAccount(
             origin: widget.origin,
             credential: result['credential'] as String,
@@ -275,8 +308,13 @@ class _EnrollPageState extends State<EnrollPage> {
                 (result['account'] as Map<String, dynamic>?)?['username']
                     as String? ??
                 '',
+            serverVersion: serverVersion,
           );
           if (!mounted) return;
+          if (serverVersion != null) {
+            await warnIfVersionsDiffer(context, serverVersion);
+            if (!mounted) return;
+          }
           await Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute<void>(builder: (_) => const ComputersPage()),
             (_) => false,

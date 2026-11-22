@@ -1,6 +1,5 @@
 //! runner-server's HTTP API and relay route, from a phone's side.
 
-use runner_core::remote::{HostKey, encode_key};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -69,7 +68,11 @@ async fn send(
     credential: Option<&str>,
     body: Value,
 ) -> Result<reqwest::Response, String> {
-    let mut request = http().post(format!("{origin}{path}")).json(&body);
+    // As the official app sends every call.
+    let mut request = http()
+        .post(format!("{origin}{path}"))
+        .header("Connect-Protocol-Version", "1")
+        .json(&body);
     if let Some(credential) = credential {
         request = request.bearer_auth(credential);
     }
@@ -113,53 +116,29 @@ fn without_url(error: &reqwest::Error) -> String {
     message
 }
 
-/// The StartEnrollment body for a phone, in the official service's format
-/// (`ENROLLMENT_KIND_CLIENT` with a `client`), which runner-server also reads.
-/// `host` repeats the same details for servers that only read that field.
-///
-/// runner-server before it spoke the official API reads only `"kind": "phone"`
-/// and takes any other kind for a computer, which it deletes ten minutes later
-/// for never connecting as one. [official] is false for such a server.
-fn enrollment_request(device: &Device, host_key: &str, official: bool) -> Value {
+/// The StartEnrollment body for a phone, exactly as the official Runner app
+/// sends it: a client, with no host key. runner-server takes the same.
+fn enrollment_request(device: &Device) -> Value {
     json!({
-        "host": {
-            "hostname": device.name,
-            "platform": device.platform,
-            "arch": std::env::consts::ARCH,
-            "osVersion": device.os_version,
-            "runnerVersion": device.app_version,
-        },
-        "hostKey": host_key,
-        "kind": if official { "ENROLLMENT_KIND_CLIENT" } else { "phone" },
+        "kind": "ENROLLMENT_KIND_CLIENT",
         "client": {
-            "name": device.name,
             "platform": device.platform,
-            "osVersion": device.os_version,
             "runnerVersion": device.app_version,
+            "osVersion": device.os_version,
+            "name": device.name,
         },
     })
 }
 
-/// Starts a device-flow sign-in as a phone. The enrollment key only identifies the
-/// sign-in to the server; a phone never serves channels with it, so it is not kept.
+/// Starts a device-flow sign-in as a phone.
 pub async fn start_enrollment(origin: &str, device: &Device) -> Result<Value, String> {
-    let key = HostKey::generate().map_err(|_| "无法生成密钥".to_owned())?;
-    let official = speaks_official_kinds(origin).await?;
     rpc(
         origin,
         &format!("{ENROLL}/StartEnrollment"),
         None,
-        enrollment_request(device, &encode_key(&key.public), official),
+        enrollment_request(device),
     )
     .await
-}
-
-/// Whether the server takes the official enrollment kinds. It is asked through
-/// `SignOutClient`, which came with them: without a credential the method
-/// answers 401, while a server that lacks it answers 404.
-async fn speaks_official_kinds(origin: &str) -> Result<bool, String> {
-    let response = send(origin, &format!("{ENROLL}/SignOutClient"), None, json!({})).await?;
-    Ok(response.status() != reqwest::StatusCode::NOT_FOUND)
 }
 
 pub async fn poll_enrollment(origin: &str, device_code: &str) -> Result<Value, String> {
@@ -182,23 +161,11 @@ pub async fn list_computers(origin: &str, credential: &str) -> Result<Value, Str
     .await
 }
 
-/// Signs the phone out with `SignOutClient`. A server without that method
-/// (runner-server before it spoke the official API) answers 404, and the phone
-/// signs out with `SignOutHost` there instead.
+/// Signs the phone out with `SignOutClient`.
 pub async fn sign_out(origin: &str, credential: &str) -> Result<Value, String> {
-    let response = send(
-        origin,
-        &format!("{ENROLL}/SignOutClient"),
-        Some(credential),
-        json!({}),
-    )
-    .await?;
-    if response.status() != reqwest::StatusCode::NOT_FOUND {
-        return reply(response).await;
-    }
     rpc(
         origin,
-        &format!("{ENROLL}/SignOutHost"),
+        &format!("{ENROLL}/SignOutClient"),
         Some(credential),
         json!({}),
     )
@@ -279,31 +246,18 @@ mod tests {
     }
 
     #[test]
-    fn phones_enroll_as_official_clients() {
+    fn phones_enroll_as_the_official_app_does() {
         let device = Device {
             name: "iPhone".into(),
             platform: "ios".into(),
-            os_version: "26.1".into(),
-            app_version: "1.2.0".into(),
+            os_version: "27.0".into(),
+            app_version: "0.1.0".into(),
         };
-        let body = enrollment_request(&device, "key", true);
-        assert_eq!(body["kind"], "ENROLLMENT_KIND_CLIENT");
-        assert_eq!(body["client"]["name"], "iPhone");
-        assert_eq!(body["client"]["osVersion"], "26.1");
-        assert_eq!(body["client"]["runnerVersion"], "1.2.0");
-        assert_eq!(body["host"]["hostname"], "iPhone");
-        assert_eq!(body["hostKey"], "key");
-    }
-
-    #[test]
-    fn an_older_runner_server_is_told_phone() {
-        let device = Device {
-            name: "Pixel".into(),
-            ..Device::default()
-        };
-        let body = enrollment_request(&device, "key", false);
-        assert_eq!(body["kind"], "phone");
-        assert_eq!(body["host"]["hostname"], "Pixel");
+        // The body the official app sent, from its captured traffic.
+        assert_eq!(
+            enrollment_request(&device),
+            json!({"kind":"ENROLLMENT_KIND_CLIENT","client":{"platform":"ios","runnerVersion":"0.1.0","osVersion":"27.0","name":"iPhone"}})
+        );
     }
 
     #[test]

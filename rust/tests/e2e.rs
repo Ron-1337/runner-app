@@ -62,6 +62,7 @@ impl Server {
                 user_code,
                 true,
                 self.user,
+                None,
                 now()
             )
             .unwrap()
@@ -323,6 +324,15 @@ async fn a_phone_signs_in_pairs_and_drives_a_terminal() {
         .unwrap();
     assert_eq!(issued["state"], "ENROLLMENT_STATE_APPROVED");
     let credential = issued["credential"].as_str().unwrap().to_owned();
+    // What the official service answers a phone, plus runner-server's version.
+    assert!(credential.starts_with("rcc_"), "{credential}");
+    assert_eq!(
+        issued["relayUrl"],
+        format!("{}/relay/client", origin.replacen("http", "ws", 1))
+    );
+    assert!(issued["clientId"].as_str().is_some_and(|id| !id.is_empty()));
+    assert!(issued.get("hostId").is_none());
+    assert!(issued["serverVersion"].is_string());
 
     // Only the computer is listed, not the phone itself.
     let listed = app

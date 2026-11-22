@@ -8,6 +8,7 @@ import 'package:runner_remote/core/core.dart';
 import 'package:runner_remote/core/store.dart';
 import 'package:runner_remote/main.dart';
 import 'package:runner_remote/pages/sign_in.dart';
+import 'package:runner_remote/services.dart';
 import 'package:xterm/xterm.dart';
 
 /// Answers the commands the app sends, like the Rust core with a computer behind it.
@@ -15,6 +16,9 @@ class FakeCore extends Core {
   final calls = <(String, Map<String, Object?>)>[];
   final _routes = StreamController<RouteEvent>.broadcast();
   var approved = false;
+
+  /// What runner-server says it is when it approves; null as the official service.
+  String? serverVersion;
 
   @override
   Stream<RouteEvent> get routeEvents => _routes.stream;
@@ -45,8 +49,9 @@ class FakeCore extends Core {
         return approved
             ? {
                 'state': 'ENROLLMENT_STATE_APPROVED',
-                'credential': 'rhc_secret',
+                'credential': 'rcc_secret',
                 'account': {'username': 'alice'},
+                'serverVersion': ?serverVersion,
               }
             : {'state': 'ENROLLMENT_STATE_PENDING'};
       case 'listComputers':
@@ -168,6 +173,65 @@ void main() {
     expect(start.$2['origin'], 'http://192.168.1.5:8080');
   });
 
+  /// Signs in to [core] until it approves; returns the saved account.
+  Future<Account> signIn(
+    WidgetTester tester,
+    FakeCore core,
+    Store store,
+  ) async {
+    await tester.pumpWidget(RunnerApp(core: core, store: store));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('origin')),
+      'https://runner.example.com',
+    );
+    await tester.tap(find.byType(FilledButton));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    core.approved = true;
+    await tester.pump(const Duration(seconds: 1));
+    // A warning would open over the waiting spinner, which never settles.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    return (await store.accounts()).single;
+  }
+
+  testWidgets('runner-server of the same version signs in without a warning', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final store = Store();
+    final core = FakeCore()
+      ..serverVersion = knownDeviceInfo()['appVersion'] as String;
+    final account = await signIn(tester, core, store);
+    expect(account.serverVersion, core.serverVersion);
+    expect(account.official, isFalse);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('versionMismatch')), findsNothing);
+    expect(find.text('studio'), findsOneWidget);
+  });
+
+  testWidgets('runner-server of another version warns, then carries on', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final store = Store();
+    final core = FakeCore()..serverVersion = '9.9.9';
+    final account = await signIn(tester, core, store);
+    expect(account.serverVersion, '9.9.9', reason: 'saved before the warning');
+    expect(find.byKey(const Key('versionMismatch')), findsOneWidget);
+    expect(find.textContaining('runner-server 9.9.9'), findsOneWidget);
+    await tester.tap(find.text('继续'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('versionMismatch')), findsNothing);
+    expect(find.text('studio'), findsOneWidget);
+  });
+
+  test('versions compare without the build number', () {
+    expect(releaseVersion('0.1.2+4'), '0.1.2');
+    expect(releaseVersion('0.1.2'), '0.1.2');
+  });
+
   testWidgets('signs in, pairs by PIN and types into a terminal', (
     tester,
   ) async {
@@ -205,7 +269,9 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
     final account = (await store.accounts()).single;
-    expect(account.credential, 'rhc_secret');
+    expect(account.credential, 'rcc_secret');
+    expect(account.official, isTrue, reason: 'no serverVersion');
+    expect(find.byKey(const Key('versionMismatch')), findsNothing);
     expect(find.text('alice@runner.example.com'), findsOneWidget);
 
     // Pair: a wrong PIN is reported, the right one opens the computer.
