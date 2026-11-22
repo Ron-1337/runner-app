@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:runner_app/core/sgr.dart';
+import 'package:runner_remote/core/sgr.dart';
 import 'package:xterm/xterm.dart';
 
 bool underlined(Terminal terminal, int x) =>

@@ -4,11 +4,11 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:runner_app/core/core.dart';
-import 'package:runner_app/core/remote.dart';
-import 'package:runner_app/core/store.dart';
-import 'package:runner_app/pages/computer.dart';
-import 'package:runner_app/services.dart';
+import 'package:runner_remote/core/core.dart';
+import 'package:runner_remote/core/remote.dart';
+import 'package:runner_remote/core/store.dart';
+import 'package:runner_remote/pages/computer.dart';
+import 'package:runner_remote/services.dart';
 import 'package:xterm/xterm.dart';
 
 const allFeatures = [

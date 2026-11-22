@@ -82,11 +82,11 @@ jobs:
             # Each APK must carry the Rust core, or the app cannot start.
             unzip -l "$apk" | grep -q "lib/.*/librunner_mobile_core.so"
             unzip -l "$apk" | grep -q "JetBrainsMonoNerdFontMono-Regular.ttf"
-            cp "$apk" "dist/runner-app-${abi}.apk"
+            cp "$apk" "dist/runner-remote-${abi}.apk"
           done
       - uses: actions/upload-artifact@v6
         with:
-          name: runner-app-android
+          name: runner-remote-android
           path: dist/*
           if-no-files-found: error
 
@@ -123,11 +123,11 @@ jobs:
         run: |
           mkdir -p dist/Payload
           cp -R build/ios/iphoneos/Runner.app dist/Payload/
-          (cd dist && zip -qry runner-app-unsigned.ipa Payload)
+          (cd dist && zip -qry runner-remote-unsigned.ipa Payload)
           rm -rf dist/Payload
       - uses: actions/upload-artifact@v6
         with:
-          name: runner-app-ios
+          name: runner-remote-ios
           path: dist/*
           if-no-files-found: error
 
@@ -139,10 +139,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v7
         with:
           path: dist
           merge-multiple: true
+      # The iOS app source for AltStore / SideStore; the latest one is always at
+      # releases/latest/download/source.json.
+      - name: iOS app source
+        run: python3 tool/ios_source.py dist/runner-remote-unsigned.ipa "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" dist/source.json
       - name: Checksums
         run: cd dist && sha256sum * > SHA256SUMS
       - uses: softprops/action-gh-release@v3

@@ -58,11 +58,21 @@ GitHub Actions（`.github/workflows/build.yml`）在每次推送到 `main` 和�
 
 | 产物 | 说明 |
 | --- | --- |
-| `runner-app-arm64-v8a.apk` 等 | 按 CPU 架构拆分的 APK，暂用调试密钥签名，可直接安装测试；大多数手机用 `arm64-v8a` |
-| `runner-app-unsigned.ipa` | 未签名，需要用 Sideloadly、AltStore 等重签名后安装 |
+| `runner-remote-arm64-v8a.apk` 等 | 按 CPU 架构拆分的 APK，暂用调试密钥签名，可直接安装测试；大多数手机用 `arm64-v8a` |
+| `runner-remote-unsigned.ipa` | 未签名，需要用 Sideloadly、AltStore 等重签名后安装 |
 
 Android 的 Rust 库由 `cargo ndk` 编译到 `android/app/src/main/jniLibs/`；iOS 链接 `rust/target/aarch64-apple-ios/release/librunner_mobile_core.a`（模拟器用 `aarch64-apple-ios-sim`），本地构建前需要先编译对应目标。
 
-推送 `v*` 标签会创建预发布 Release，附带上述文件和 `SHA256SUMS`。
+推送 `v*` 标签会创建 Release，附带上述文件、`SHA256SUMS` 和 iOS 软件源 `source.json`。
 
-App ID：Android `dev.runner.runner_app`，iOS `dev.runner.runnerApp`。
+### iOS 软件源
+
+在 AltStore 或 SideStore 中添加软件源（AltStore：“浏览 → 源 → +”）：
+
+```
+https://github.com/Ron-1337/runner-remote/releases/latest/download/source.json
+```
+
+之后就能从软件源安装和更新 Runner Remote，由 AltStore / SideStore 用你的 Apple ID 重新签名。软件源由 `tool/ios_source.py` 在每次发布时根据 IPA 生成。
+
+App ID：Android `dev.runner.runner_remote`，iOS `dev.runner.runnerRemote`。

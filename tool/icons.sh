@@ -1,6 +1,6 @@
 #!/bin/sh
 # Renders assets/icon/icon.svg to the iOS and Android launcher icons.
-# Needs rsvg-convert (librsvg). Run from runner-app/.
+# Needs rsvg-convert (librsvg). Run from runner-remote/.
 set -eu
 src=assets/icon/icon.svg
 android=assets/icon/icon-android.svg

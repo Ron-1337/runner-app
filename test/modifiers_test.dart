@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:runner_app/core/modifiers.dart';
+import 'package:runner_remote/core/modifiers.dart';
 
 void main() {
   test('modifiers change a single key as a terminal keyboard would', () {

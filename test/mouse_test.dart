@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:runner_app/core/mouse.dart';
+import 'package:runner_remote/core/mouse.dart';
 import 'package:xterm/xterm.dart';
 
 void main() {

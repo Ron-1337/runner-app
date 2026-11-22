@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:runner_app/core/core.dart';
+import 'package:runner_remote/core/core.dart';
 
 /// Talks to the real Rust library through dart:ffi. Build it first with
 /// `cargo build --manifest-path rust/Cargo.toml`; CI does.

@@ -1,4 +1,4 @@
-package dev.runner.runner_app
+package dev.runner.runner_remote
 
 import io.flutter.embedding.android.FlutterActivity
 

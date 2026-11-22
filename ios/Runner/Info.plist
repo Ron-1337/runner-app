@@ -30,7 +30,7 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLName</key>
-			<string>dev.runner.runnerApp</string>
+			<string>dev.runner.runnerRemote</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>runner-remote</string>
