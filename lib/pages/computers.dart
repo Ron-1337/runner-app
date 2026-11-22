@@ -288,7 +288,8 @@ Future<List<Map<String, dynamic>>> listComputers(
             'credential': account.credential,
           })
           as Map<String, dynamic>;
-  return (result['hosts'] as List).cast<Map<String, dynamic>>();
+  // The official service leaves an empty list out, answering `{}`.
+  return ((result['hosts'] as List?) ?? const []).cast<Map<String, dynamic>>();
 }
 
 /// Connects to [computer] under [account], pairing by PIN first when this

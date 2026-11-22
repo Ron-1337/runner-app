@@ -20,6 +20,9 @@ class FakeCore extends Core {
   /// What runner-server says it is when it approves; null as the official service.
   String? serverVersion;
 
+  /// The account has no computers; the official service then answers `{}`.
+  var noComputers = false;
+
   @override
   Stream<RouteEvent> get routeEvents => _routes.stream;
 
@@ -55,6 +58,7 @@ class FakeCore extends Core {
               }
             : {'state': 'ENROLLMENT_STATE_PENDING'};
       case 'listComputers':
+        if (noComputers) return <String, dynamic>{};
         return {
           'hosts': [
             {
@@ -210,6 +214,20 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('versionMismatch')), findsNothing);
     expect(find.text('studio'), findsOneWidget);
+  });
+
+  testWidgets('an account without computers on the official service loads', (
+    tester,
+  ) async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final store = Store();
+    final core = FakeCore()..noComputers = true;
+    final account = await signIn(tester, core, store);
+    expect(account.official, isTrue);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('subtype'), findsNothing);
+    expect(find.text('studio'), findsNothing);
   });
 
   testWidgets('runner-server of another version warns, then carries on', (
