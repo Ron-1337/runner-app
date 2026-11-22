@@ -67,6 +67,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
   final _webhookUrl = TextEditingController();
   final _webhookHeaders = TextEditingController();
   final _webhookTemplate = TextEditingController();
+  final _webhookGroup = TextEditingController();
   var _events = {'input': true, 'finished': true, 'failed': true};
 
   List<Map<String, dynamic>>? _watchers;
@@ -94,6 +95,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       _webhookUrl,
       _webhookHeaders,
       _webhookTemplate,
+      _webhookGroup,
     ]) {
       controller.dispose();
     }
@@ -168,6 +170,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
           channel?['headers'] as Map<String, dynamic>?,
         );
         _webhookTemplate.text = text('template');
+        _webhookGroup.text = text('group');
       default:
         _kind = 'none';
     }
@@ -215,6 +218,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             'url': text(_webhookUrl),
             'headers': parseHeaders(_webhookHeaders.text),
             'template': _webhookTemplate.text.trim(),
+            'group': text(_webhookGroup),
           },
           null,
         );
@@ -381,11 +385,13 @@ class _NotificationsPageState extends State<NotificationsPage> {
         hint: '可选',
         lines: null,
       ),
-      _note(
-        '留空时 POST 一个 JSON（title、body、event、url、computer、session 等字段）。'
-        '填写时按原样发送，并替换 {{title}} {{body}} {{url}} {{event}} '
-        '{{session}} {{computer}}。',
+      _field(
+        'webhookGroup',
+        _webhookGroup,
+        '分组',
+        hint: '可选，{{group}} 的值，默认 Runner Remote',
       ),
+      _note(webhookVariablesNote),
     ],
     _ => const [],
   };
@@ -583,3 +589,14 @@ Future<String?> askWatcherPin(BuildContext context, String name) {
     ),
   );
 }
+
+/// What a webhook template can use; matches runner-server's TEMPLATE_VARIABLES.
+const webhookVariablesNote =
+    '留空时 POST 一个包含全部字段的 JSON。填写时按原样发送，并替换这些变量（值按 JSON 字符串转义）：\n'
+    '{{title}} 标题 · {{message}} 内容（同 {{body}}）\n'
+    '{{event}} 事件 input/finished/failed · {{event_name}} 需要输入/已完成/失败\n'
+    '{{session}} 会话名 · {{session_id}} · {{computer}} 电脑名 · {{computer_id}}\n'
+    '{{group}} 分组 · {{icon_url}} 图标地址\n'
+    '{{goto_url}} 网页跳转：打开网页后转到 App 中的会话\n'
+    '{{goto_url_schema}} 直接跳转：runner-remote:// 直接打开 App\n'
+    '{{date}} 日期 · {{time}} 时间 · {{datetime}} · {{timestamp}} 秒';
