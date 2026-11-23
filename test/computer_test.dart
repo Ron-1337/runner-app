@@ -483,6 +483,16 @@ void main() {
     expect(core.notified, isEmpty, reason: 'it has no notifications');
   });
 
+  testWidgets('the 团队 button lists the computer\'s crews', (tester) async {
+    final core = await open(tester);
+    await tester.tap(find.byKey(const Key('crews')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, '团队'), findsOneWidget);
+    expect(find.text('trio'), findsOneWidget);
+    expect(find.text('还没有成员'), findsOneWidget);
+    expect(core.of('catalog'), isNotEmpty);
+  });
+
   testWidgets('a terminal attaches again after a reconnect', (tester) async {
     final core = await open(tester);
     await tester.tap(find.text('Fix the build'));
