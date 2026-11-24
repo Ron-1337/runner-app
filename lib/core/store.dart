@@ -232,6 +232,34 @@ class Store {
   Future<void> setTerminalFontSize(double size) =>
       _storage.write(key: _fontSize, value: '$size');
 
+  static const _font = 'terminalFont';
+
+  /// The terminal's typeface; JetBrains Mono until changed.
+  Future<TerminalFont> terminalFont() async =>
+      TerminalFont.parse(await _storage.read(key: _font));
+
+  Future<void> setTerminalFont(TerminalFont font) =>
+      _storage.write(key: _font, value: font.name);
+
+  static const _cursor = 'terminalCursor';
+
+  /// The terminal cursor's shape; a block until changed.
+  Future<TerminalCursor> terminalCursor() async =>
+      TerminalCursor.parse(await _storage.read(key: _cursor));
+
+  Future<void> setTerminalCursor(TerminalCursor cursor) =>
+      _storage.write(key: _cursor, value: cursor.name);
+
+  static const _cursorAlways = 'terminalCursorAlways';
+
+  /// Whether the cursor shows while the terminal does not have the keyboard;
+  /// it hides then by default.
+  Future<bool> terminalCursorAlways() async =>
+      await _storage.read(key: _cursorAlways) == 'true';
+
+  Future<void> setTerminalCursorAlways(bool always) =>
+      _storage.write(key: _cursorAlways, value: '$always');
+
   static const _enterSends = 'keyboardEnterSends';
 
   /// Whether the phone keyboard's return key sends (Enter) rather than
@@ -241,6 +269,36 @@ class Store {
 
   Future<void> setKeyboardEnterSends(bool sends) =>
       _storage.write(key: _enterSends, value: '$sends');
+}
+
+/// The terminal's typeface.
+enum TerminalFont {
+  /// Bundled with the app, with the Nerd Font icons agents draw.
+  jetBrainsMono('JetBrains Mono', '内置，含 Nerd Font 图标'),
+
+  /// The phone's own monospace font (Menlo on iOS); icons still come from
+  /// JetBrains Mono.
+  system('系统等宽字体', 'iOS 为 Menlo，Android 为系统 monospace');
+
+  const TerminalFont(this.label, this.detail);
+  final String label;
+  final String detail;
+
+  static TerminalFont parse(String? name) =>
+      values.where((f) => f.name == name).firstOrNull ?? jetBrainsMono;
+}
+
+/// The terminal cursor's shape.
+enum TerminalCursor {
+  block('方块'),
+  underline('下划线'),
+  bar('竖线');
+
+  const TerminalCursor(this.label);
+  final String label;
+
+  static TerminalCursor parse(String? name) =>
+      values.where((c) => c.name == name).firstOrNull ?? block;
 }
 
 final _random = Random.secure();

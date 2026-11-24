@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:material_ui/material_ui.dart';
 import 'package:xterm/xterm.dart';
@@ -60,6 +61,9 @@ class _TerminalPageState extends State<TerminalPage> {
   /// the key bar until it is committed.
   String? _composing;
   double _fontSize = defaultFontSize;
+  var _font = TerminalFont.jetBrainsMono;
+  var _cursor = TerminalCursor.block;
+  var _cursorAlways = false;
   var _loadedFontSize = false;
 
   /// Whether the phone keyboard's return key sends; otherwise it starts a new
@@ -114,6 +118,15 @@ class _TerminalPageState extends State<TerminalPage> {
       if (mounted && size != null) setState(() => _fontSize = size);
     });
     store.keyboardEnterSends().then((sends) => _enterSends = sends);
+    store.terminalFont().then((font) {
+      if (mounted) setState(() => _font = font);
+    });
+    store.terminalCursor().then((cursor) {
+      if (mounted) setState(() => _cursor = cursor);
+    });
+    store.terminalCursorAlways().then((always) {
+      if (mounted) setState(() => _cursorAlways = always);
+    });
   }
 
   void _setFontSize(double size) {
@@ -364,10 +377,9 @@ class _TerminalPageState extends State<TerminalPage> {
                   autofocus: true,
                   hardwareKeyboardOnly: true,
                   readOnly: !_live || _controllerKind != 'you',
-                  textStyle: TerminalStyle(
-                    fontFamily: 'JetBrainsMono',
-                    fontSize: _fontSize,
-                  ),
+                  textStyle: terminalStyle(_font, _fontSize),
+                  cursorType: cursorType(_cursor),
+                  alwaysShowCursor: _cursorAlways,
                 ),
               ),
             ),
@@ -537,6 +549,34 @@ class _KeyBar extends StatelessWidget {
 }
 
 const defaultFontSize = 13.0;
+
+/// The terminal's text in [font] at [size]. Whatever the font, icons and
+/// CJK come from the fonts after it.
+TerminalStyle terminalStyle(TerminalFont font, double size) => switch (font) {
+  TerminalFont.jetBrainsMono => TerminalStyle(
+    fontFamily: 'JetBrainsMono',
+    fontSize: size,
+  ),
+  TerminalFont.system => TerminalStyle(
+    fontFamily: Platform.isIOS ? 'Menlo' : 'monospace',
+    fontSize: size,
+    // JetBrains Mono first, for the Nerd Font icons agents draw.
+    fontFamilyFallback: const [
+      'JetBrainsMono',
+      'Noto Sans Mono CJK SC',
+      'Noto Color Emoji',
+      'Noto Sans Symbols',
+      'monospace',
+      'sans-serif',
+    ],
+  ),
+};
+
+TerminalCursorType cursorType(TerminalCursor cursor) => switch (cursor) {
+  TerminalCursor.block => TerminalCursorType.block,
+  TerminalCursor.underline => TerminalCursorType.underline,
+  TerminalCursor.bar => TerminalCursorType.verticalBar,
+};
 
 /// The effort slider's track inset; the stop labels line up with it.
 const _sliderInset = 24.0;

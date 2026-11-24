@@ -74,6 +74,20 @@ Future<(PairedCore, Store)> home(
   return (core, store);
 }
 
+/// Scrolls the settings until [finder] is at the top, clear of the bottom bar.
+/// [up] when it lies above what is showing.
+Future<void> reveal(
+  WidgetTester tester,
+  Finder finder, {
+  bool up = false,
+}) async {
+  if (finder.evaluate().isEmpty) {
+    await tester.scrollUntilVisible(finder, up ? -200 : 200);
+  }
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('the dashboard sums up computers, sessions and usage', (
     tester,
@@ -109,7 +123,10 @@ void main() {
     final (_, store) = await home(tester);
     await tester.tap(find.byKey(const Key('tabSettings')));
     await tester.pumpAndSettle();
+    await reveal(tester, find.text('alice@runner.example.com'));
     expect(find.text('alice@runner.example.com'), findsOneWidget);
+    // Back to the top, where 恢复默认 sits above the font size.
+    await reveal(tester, find.byKey(const Key('settingsFontReset')), up: true);
 
     await tester.tap(find.byKey(const Key('settingsFontLarger')));
     await tester.pumpAndSettle();
@@ -119,10 +136,48 @@ void main() {
     expect(await store.terminalFontSize(), 13);
 
     expect(await store.keyboardEnterSends(), isFalse, reason: 'new line');
+    await reveal(tester, find.text('发送'));
     await tester.tap(find.text('发送'));
     await tester.pumpAndSettle();
     expect(await store.keyboardEnterSends(), isTrue);
 
+    // Font, cursor and showing it always are kept, and 恢复默认 resets them.
+    await reveal(
+      tester,
+      find.byKey(const Key('settingsFont.system')),
+      up: true,
+    );
+    await tester.tap(find.byKey(const Key('settingsFont.system')));
+    await tester.pumpAndSettle();
+    expect(await store.terminalFont(), TerminalFont.system);
+    await reveal(tester, find.text('竖线'));
+    await tester.tap(find.text('竖线'));
+    await tester.pumpAndSettle();
+    expect(await store.terminalCursor(), TerminalCursor.bar);
+    await reveal(
+      tester,
+      find.byKey(const Key('settingsTerminalPreview')),
+      up: true,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('settingsTerminalPreview')),
+        matching: find.textContaining('▏'),
+      ),
+      findsOneWidget,
+    );
+    await reveal(tester, find.byKey(const Key('settingsCursorAlways')));
+    await tester.tap(find.byKey(const Key('settingsCursorAlways')));
+    await tester.pumpAndSettle();
+    expect(await store.terminalCursorAlways(), isTrue);
+    await reveal(tester, find.byKey(const Key('settingsFontReset')), up: true);
+    await tester.tap(find.byKey(const Key('settingsFontReset')));
+    await tester.pumpAndSettle();
+    expect(await store.terminalFont(), TerminalFont.jetBrainsMono);
+    expect(await store.terminalCursor(), TerminalCursor.block);
+    expect(await store.terminalCursorAlways(), isFalse);
+
+    await reveal(tester, find.byKey(const Key('settingsAddAccount')));
     await tester.tap(find.byKey(const Key('settingsAddAccount')));
     await tester.pumpAndSettle();
     expect(find.text('添加账户'), findsOneWidget);
@@ -134,6 +189,7 @@ void main() {
       final (core, _) = await home(tester);
       await tester.tap(find.byKey(const Key('tabSettings')));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(find.textContaining('官方服务器'), 200);
       expect(find.textContaining('官方服务器'), findsOneWidget);
       // The section would sit just above 关于, below the fold.
       await tester.scrollUntilVisible(find.text('关于'), 300);
@@ -148,6 +204,10 @@ void main() {
       await home(tester, serverVersion: 'v0.1.2(7)-1a2b3c');
       await tester.tap(find.byKey(const Key('tabSettings')));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.textContaining('Runner-Server v0.1.2(7)-1a2b3c'),
+        200,
+      );
       expect(
         find.textContaining('Runner-Server v0.1.2(7)-1a2b3c'),
         findsOneWidget,

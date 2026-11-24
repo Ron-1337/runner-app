@@ -3,7 +3,8 @@ import 'package:material_ui/material_ui.dart';
 import '../core/store.dart';
 import '../services.dart';
 import 'notifications.dart';
-import 'terminal.dart' show defaultFontSize, maxFontSize, minFontSize;
+import 'terminal.dart'
+    show defaultFontSize, maxFontSize, minFontSize, terminalStyle;
 
 /// The app's settings: the terminal's font size and return key, the accounts,
 /// and what this phone is.
@@ -33,6 +34,9 @@ class _SettingsViewState extends State<SettingsView> {
   ];
 
   double _fontSize = defaultFontSize;
+  var _typeface = TerminalFont.jetBrainsMono;
+  var _cursor = TerminalCursor.block;
+  var _cursorAlways = false;
   var _enterSends = false;
   Map<String, Object?> _device = knownDeviceInfo();
   var _loaded = false;
@@ -46,6 +50,15 @@ class _SettingsViewState extends State<SettingsView> {
     store.terminalFontSize().then((size) {
       if (mounted && size != null) setState(() => _fontSize = size);
     });
+    store.terminalFont().then((font) {
+      if (mounted) setState(() => _typeface = font);
+    });
+    store.terminalCursor().then((cursor) {
+      if (mounted) setState(() => _cursor = cursor);
+    });
+    store.terminalCursorAlways().then((always) {
+      if (mounted) setState(() => _cursorAlways = always);
+    });
     store.keyboardEnterSends().then((sends) {
       if (mounted) setState(() => _enterSends = sends);
     });
@@ -58,6 +71,61 @@ class _SettingsViewState extends State<SettingsView> {
     final clamped = size.clamp(minFontSize, maxFontSize).toDouble();
     setState(() => _fontSize = clamped);
     Services.of(context).store.setTerminalFontSize(clamped);
+  }
+
+  void _setFont(TerminalFont font) {
+    setState(() => _typeface = font);
+    Services.of(context).store.setTerminalFont(font);
+  }
+
+  void _setCursor(TerminalCursor cursor) {
+    setState(() => _cursor = cursor);
+    Services.of(context).store.setTerminalCursor(cursor);
+  }
+
+  void _setCursorAlways(bool always) {
+    setState(() => _cursorAlways = always);
+    Services.of(context).store.setTerminalCursorAlways(always);
+  }
+
+  bool get _terminalDefaults =>
+      _fontSize == defaultFontSize &&
+      _typeface == TerminalFont.jetBrainsMono &&
+      _cursor == TerminalCursor.block &&
+      !_cursorAlways;
+
+  void _resetTerminal() {
+    _font(defaultFontSize);
+    _setFont(TerminalFont.jetBrainsMono);
+    _setCursor(TerminalCursor.block);
+    _setCursorAlways(false);
+  }
+
+  /// A line of terminal text in the chosen font, size and cursor.
+  Widget _preview() {
+    final colors = Theme.of(context).colorScheme;
+    final cursor = switch (_cursor) {
+      TerminalCursor.block => '█',
+      TerminalCursor.underline => '_',
+      TerminalCursor.bar => '▏',
+    };
+    return Container(
+      key: const Key('settingsTerminalPreview'),
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        '~/runner \$ claude --model opus 你好 $cursor',
+        style: terminalStyle(
+          _typeface,
+          _fontSize,
+        ).toTextStyle(color: colors.onSurface),
+      ),
+    );
   }
 
   void _enter(bool sends) {
@@ -89,13 +157,24 @@ class _SettingsViewState extends State<SettingsView> {
             padding: const EdgeInsets.only(right: 8),
             child: TextButton(
               key: const Key('settingsFontReset'),
-              onPressed: _fontSize == defaultFontSize
-                  ? null
-                  : () => _font(defaultFontSize),
+              onPressed: _terminalDefaults ? null : _resetTerminal,
               child: const Text('恢复默认'),
             ),
           ),
         ),
+        _preview(),
+        for (final font in TerminalFont.values)
+          ListTile(
+            key: Key('settingsFont.${font.name}'),
+            title: Text(font.label),
+            subtitle: Text(font.detail),
+            leading: Icon(
+              font == _typeface
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_unchecked,
+            ),
+            onTap: () => _setFont(font),
+          ),
         ListTile(
           title: const Text('字体大小'),
           trailing: Row(
@@ -127,6 +206,26 @@ class _SettingsViewState extends State<SettingsView> {
               ),
             ],
           ),
+        ),
+        ListTile(
+          title: const Text('光标'),
+          trailing: SegmentedButton<TerminalCursor>(
+            key: const Key('settingsCursor'),
+            showSelectedIcon: false,
+            segments: [
+              for (final cursor in TerminalCursor.values)
+                ButtonSegment(value: cursor, label: Text(cursor.label)),
+            ],
+            selected: {_cursor},
+            onSelectionChanged: (selected) => _setCursor(selected.single),
+          ),
+        ),
+        SwitchListTile(
+          key: const Key('settingsCursorAlways'),
+          title: const Text('始终显示光标'),
+          subtitle: const Text('收起键盘时也显示'),
+          value: _cursorAlways,
+          onChanged: _setCursorAlways,
         ),
         ListTile(
           title: const Text('手机键盘的回车'),

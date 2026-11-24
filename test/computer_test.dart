@@ -483,6 +483,26 @@ void main() {
     expect(core.notified, isEmpty, reason: 'it has no notifications');
   });
 
+  testWidgets('the terminal uses the font, size and cursor from settings', (
+    tester,
+  ) async {
+    final core = await open(tester);
+    final store = Store();
+    await store.setTerminalFont(TerminalFont.system);
+    await store.setTerminalFontSize(16);
+    await store.setTerminalCursor(TerminalCursor.bar);
+    await store.setTerminalCursorAlways(true);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    expect(core.of('attach'), hasLength(1));
+    final view = tester.widget<TerminalView>(find.byType(TerminalView));
+    expect(view.textStyle.fontFamily, isNot('JetBrainsMono'));
+    expect(view.textStyle.fontFamilyFallback.first, 'JetBrainsMono');
+    expect(view.textStyle.fontSize, 16);
+    expect(view.cursorType, TerminalCursorType.verticalBar);
+    expect(view.alwaysShowCursor, isTrue);
+  });
+
   testWidgets('a terminal attaches again after a reconnect', (tester) async {
     final core = await open(tester);
     await tester.tap(find.text('Fix the build'));
