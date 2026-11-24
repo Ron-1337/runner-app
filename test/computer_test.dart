@@ -513,6 +513,45 @@ void main() {
     expect(core.of('catalog'), isNotEmpty);
   });
 
+  testWidgets('a mission opens as a chat, and a member as its own session', (
+    tester,
+  ) async {
+    final core = await open(
+      tester,
+      features: [...allFeatures, 'feed', 'follow', 'unfollow', 'post'],
+    );
+    core.answers['feed'] = (_) => {
+      'entries': [
+        {
+          'id': 'e1',
+          'ts': '2026-11-24T04:00:00Z',
+          'from': 'coder',
+          'to': [],
+          'kind': 'message',
+          'text': 'On it.',
+        },
+      ],
+      'before': null,
+    };
+    await tester.tap(find.byKey(const Key('mission.m1')));
+    await tester.pumpAndSettle();
+    expect(core.of('follow').single['mission'], 'm1');
+    expect(find.text('On it.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('members')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('memberChat.coder')));
+    await tester.pumpAndSettle();
+    // The member's own session, as the desktop opens it beside the chat.
+    expect(core.of('attach').single['session'], 's4');
+    expect(find.byType(TerminalView), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(core.of('unfollow').single['mission'], 'm1');
+  });
+
   testWidgets('a terminal attaches again after a reconnect', (tester) async {
     final core = await open(tester);
     await tester.tap(find.text('Fix the build'));
