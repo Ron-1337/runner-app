@@ -37,6 +37,7 @@ class _ComputerPageState extends State<ComputerPage> {
   StreamSubscription<RouteEvent>? _events;
   Map<String, dynamic>? _overview;
   var _wasConnected = true;
+  final _expandedMissions = <String>{};
 
   Remote get _remote => widget.remote;
 
@@ -142,6 +143,12 @@ class _ComputerPageState extends State<ComputerPage> {
         ),
       ),
     );
+  }
+
+  void _toggleMission(String id) {
+    setState(() {
+      if (!_expandedMissions.remove(id)) _expandedMissions.add(id);
+    });
   }
 
   /// A crew mission as a chat; its members' own sessions open from there.
@@ -578,6 +585,8 @@ class _ComputerPageState extends State<ComputerPage> {
                     child: _Workspaces(
                       overview: overview,
                       live: live,
+                      expandedMissions: _expandedMissions,
+                      onToggleMission: _toggleMission,
                       onSession: _openSession,
                       onSessionMenu: _sessionMenu,
                       onMissionMenu: _missionMenu,
@@ -618,6 +627,8 @@ class _Workspaces extends StatelessWidget {
   const _Workspaces({
     required this.overview,
     required this.live,
+    required this.expandedMissions,
+    required this.onToggleMission,
     required this.onSession,
     required this.onSessionMenu,
     required this.onMissionMenu,
@@ -628,6 +639,8 @@ class _Workspaces extends StatelessWidget {
 
   final Map<String, dynamic> overview;
   final bool live;
+  final Set<String> expandedMissions;
+  final void Function(String id) onToggleMission;
   final void Function(String id, Map<String, dynamic> session) onSession;
   final void Function(String id, Map<String, dynamic> session) onSessionMenu;
   final void Function(Map<String, dynamic> mission) onMissionMenu;
@@ -663,12 +676,18 @@ class _Workspaces extends StatelessWidget {
 
     void items(String? project) {
       for (final mission in missions.where((m) => m['project'] == project)) {
+        final id = mission['id'] as String;
         final members = ((mission['members'] as List?) ?? const [])
             .cast<Map<String, dynamic>>()
-            .where((m) => sessions.containsKey(m['session']));
+            .where((m) => sessions.containsKey(m['session']))
+            .toList();
+        for (final member in members) {
+          placed.add(member['session'] as String);
+        }
+        final expanded = expandedMissions.contains(id);
         children.add(
           _GroupTile(
-            key: Key('mission.${mission['id']}'),
+            key: Key('mission.$id'),
             icon: Icons.groups_outlined,
             title: mission['title'] as String? ?? '',
             subtitle: [
@@ -679,16 +698,21 @@ class _Workspaces extends StatelessWidget {
             ].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
             onMenu: live ? () => onMissionMenu(mission) : null,
             onTap: live && onMission != null ? () => onMission!(mission) : null,
+            expanded: expanded,
+            toggleKey: Key('missionExpand.$id'),
+            onToggle: members.isEmpty ? null : () => onToggleMission(id),
           ),
         );
-        for (final member in members) {
-          children.add(
-            session(
-              member['session'] as String,
-              label: '@${member['handle']}',
-              indent: 24,
-            ),
-          );
+        if (expanded) {
+          for (final member in members) {
+            children.add(
+              session(
+                member['session'] as String,
+                label: '@${member['handle']}',
+                indent: 24,
+              ),
+            );
+          }
         }
       }
       for (final tab in tabs.where((t) => t['project'] == project)) {
@@ -779,6 +803,9 @@ class _GroupTile extends StatelessWidget {
     required this.subtitle,
     required this.onMenu,
     this.onTap,
+    this.expanded = false,
+    this.toggleKey,
+    this.onToggle,
   });
 
   final IconData icon;
@@ -786,18 +813,35 @@ class _GroupTile extends StatelessWidget {
   final String subtitle;
   final VoidCallback? onMenu;
   final VoidCallback? onTap;
+  final bool expanded;
+  final Key? toggleKey;
+  final VoidCallback? onToggle;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    leading: Icon(icon),
-    title: Text(title),
-    subtitle: Text(subtitle),
-    onTap: onTap,
-    trailing: onMenu == null
-        ? null
-        : IconButton(icon: const Icon(Icons.more_vert), onPressed: onMenu),
-    onLongPress: onMenu,
-  );
+  Widget build(BuildContext context) {
+    final trailing = [
+      if (onToggle != null)
+        IconButton(
+          key: toggleKey,
+          tooltip: expanded ? '收起成员' : '展开成员',
+          icon: Icon(expanded ? Icons.expand_less : Icons.expand_more),
+          onPressed: onToggle,
+        ),
+      if (onMenu != null)
+        IconButton(icon: const Icon(Icons.more_vert), onPressed: onMenu),
+    ];
+    return ListTile(
+      contentPadding: const EdgeInsetsDirectional.only(start: 16, end: 4),
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      onTap: onTap,
+      trailing: trailing.isEmpty
+          ? null
+          : Row(mainAxisSize: MainAxisSize.min, children: trailing),
+      onLongPress: onMenu,
+    );
+  }
 }
 
 const _statusText = {
