@@ -82,7 +82,7 @@ class CrewComputer extends Core {
         'id': 'r1',
         'name': 'Coder',
         'handle': 'coder',
-        'runtime': 'claude',
+        'runtime': 'claude-code',
         'model': null,
         'effort': null,
         'speed': null,
@@ -91,7 +91,7 @@ class CrewComputer extends Core {
         'id': 'r2',
         'name': 'Reviewer',
         'handle': 'reviewer',
-        'runtime': 'claude',
+        'runtime': 'claude-code',
         'model': null,
         'effort': null,
         'speed': null,
@@ -99,13 +99,15 @@ class CrewComputer extends Core {
     ],
     'runtimes': [
       {
-        'name': 'claude',
+        'name': 'claude-code',
         'label': 'Claude Code',
         'available': true,
         'models': [
+          {'value': '', 'label': 'Default', 'supportedEfforts': null},
           {'value': 'opus', 'label': 'Opus', 'supportedEfforts': null},
         ],
         'efforts': [
+          {'value': '', 'label': 'Default', 'supportedEfforts': null},
           {'value': 'low', 'label': 'Low', 'supportedEfforts': null},
           {'value': 'high', 'label': 'High', 'supportedEfforts': null},
         ],
@@ -116,6 +118,7 @@ class CrewComputer extends Core {
         'label': 'Codex',
         'available': true,
         'models': [
+          {'value': '', 'label': 'Default', 'supportedEfforts': null},
           {
             'value': 'gpt-6.1',
             'label': 'GPT-6.1',
@@ -123,6 +126,7 @@ class CrewComputer extends Core {
           },
         ],
         'efforts': [
+          {'value': '', 'label': 'Default', 'supportedEfforts': null},
           {'value': 'low', 'label': 'Low', 'supportedEfforts': null},
           {'value': 'high', 'label': 'High', 'supportedEfforts': null},
         ],
@@ -412,6 +416,7 @@ void main() {
     await tester.tap(find.byKey(const Key('slotEffort.codex.gpt-6.1')));
     await tester.pumpAndSettle();
     expect(find.text('Low'), findsNothing);
+    expect(find.text('Default'), findsNothing, reason: "'' is 跟随角色");
     await tester.tap(find.text('High').last);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('slotSpeed.codex')));

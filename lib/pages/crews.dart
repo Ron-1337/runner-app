@@ -453,11 +453,16 @@ class _CrewPageState extends State<CrewPage> {
   /// What a member runs as: the role, and what it overrides of it.
   String _summary(Map<String, dynamic> slot) {
     final role = _role(slot['role'] as String?);
+    String? set(String key) {
+      final value = slot[key];
+      return value is String && value.isNotEmpty ? value : null;
+    }
+
     final overrides = [
-      if (slot['runtime'] != null) _runtimeLabel(slot['runtime'] as String),
-      slot['model'] as String?,
-      if (slot['effort'] != null) '推理 ${slot['effort']}',
-      if (slot['speed'] == 'fast') '快速',
+      if (set('runtime') case final runtime?) _runtimeLabel(runtime),
+      set('model'),
+      if (set('effort') case final effort?) '推理 $effort',
+      if (set('speed') == 'fast') '快速',
     ].whereType<String>();
     return [
       role?['name'] as String? ?? '角色已删除',
@@ -677,12 +682,16 @@ class _SlotFormState extends State<SlotForm> {
         widget.slot?['handle'] as String? ??
         _suggest(_roles.firstOrNull?['handle'] as String?),
   );
-  late String? _runtime = widget.slot?['runtime'] as String?;
-  late String? _model = widget.slot?['model'] as String?;
-  late String? _effort = widget.slot?['effort'] as String?;
-  late String? _speed = widget.slot?['speed'] as String?;
+  late String? _runtime = _set(widget.slot?['runtime']);
+  late String? _model = _set(widget.slot?['model']);
+  late String? _effort = _set(widget.slot?['effort']);
+  late String? _speed = _set(widget.slot?['speed']);
 
   bool get _adding => widget.slot == null;
+
+  /// An override as stored; `''` means none, as null does.
+  static String? _set(Object? value) =>
+      value is String && value.isNotEmpty ? value : null;
 
   List<Map<String, dynamic>> _list(String key) =>
       ((widget.catalog[key] as List?) ?? const []).cast<Map<String, dynamic>>();
@@ -701,8 +710,13 @@ class _SlotFormState extends State<SlotForm> {
     'runtimes',
   ).where((r) => r['name'] == _effectiveRuntime).firstOrNull;
 
+  /// A runtime's models or efforts. Runner lists the runtime's default first
+  /// as `''`; that is "跟随角色" (null) here, so it is left out.
   List<Map<String, dynamic>> _options(Map<String, dynamic>? from, String key) =>
-      ((from?[key] as List?) ?? const []).cast<Map<String, dynamic>>();
+      ((from?[key] as List?) ?? const [])
+          .cast<Map<String, dynamic>>()
+          .where((o) => (o['value'] as String?)?.isNotEmpty ?? false)
+          .toList();
 
   List<Map<String, dynamic>> get _models => _options(_runtimeEntry, 'models');
 
