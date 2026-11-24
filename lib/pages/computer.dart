@@ -6,6 +6,8 @@ import '../core/core.dart';
 import '../core/remote.dart';
 import '../core/store.dart';
 import '../services.dart';
+import 'crews.dart';
+import 'mission.dart';
 import 'start.dart';
 import 'terminal.dart';
 
@@ -142,6 +144,22 @@ class _ComputerPageState extends State<ComputerPage> {
     );
   }
 
+  /// A crew mission as a chat; its members' own sessions open from there.
+  Future<void> _openMission(Map<String, dynamic> mission) async {
+    final overview = _overview;
+    if (overview == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MissionPage(
+          remote: _remote,
+          mission: mission['id'] as String,
+          overview: overview,
+          openSession: _openTerminal,
+        ),
+      ),
+    );
+  }
+
   Future<void> _start(StartKind kind, {String? project}) async {
     final started = await Navigator.of(context).push<Started>(
       MaterialPageRoute(
@@ -162,6 +180,16 @@ class _ComputerPageState extends State<ComputerPage> {
       unawaited(_refresh());
       showMessage(context, '任务已启动');
     }
+  }
+
+  /// The computer's crews; a mission started from one shows here like any other.
+  Future<void> _crews() async {
+    final started = await Navigator.of(context).push<Started>(
+      MaterialPageRoute(builder: (_) => CrewsPage(remote: _remote)),
+    );
+    if (started == null || !mounted) return;
+    unawaited(_refresh());
+    showMessage(context, '任务已启动');
   }
 
   Future<void> _newProject() async {
@@ -517,6 +545,13 @@ class _ComputerPageState extends State<ComputerPage> {
       appBar: AppBar(
         title: Text(widget.computer['name'] as String? ?? '电脑'),
         actions: [
+          if (_remote.has('catalog'))
+            IconButton(
+              key: const Key('crews'),
+              tooltip: '团队',
+              icon: const Icon(Icons.groups_outlined),
+              onPressed: live ? _crews : null,
+            ),
           IconButton(
             tooltip: '刷新',
             icon: const Icon(Icons.refresh),
@@ -546,6 +581,7 @@ class _ComputerPageState extends State<ComputerPage> {
                       onSession: _openSession,
                       onSessionMenu: _sessionMenu,
                       onMissionMenu: _missionMenu,
+                      onMission: _remote.has('feed') ? _openMission : null,
                       onTabMenu: _tabMenu,
                       onProjectMenu: _projectMenu,
                     ),
@@ -585,6 +621,7 @@ class _Workspaces extends StatelessWidget {
     required this.onSession,
     required this.onSessionMenu,
     required this.onMissionMenu,
+    this.onMission,
     required this.onTabMenu,
     required this.onProjectMenu,
   });
@@ -594,6 +631,9 @@ class _Workspaces extends StatelessWidget {
   final void Function(String id, Map<String, dynamic> session) onSession;
   final void Function(String id, Map<String, dynamic> session) onSessionMenu;
   final void Function(Map<String, dynamic> mission) onMissionMenu;
+
+  /// Opens a mission as a chat; null when the computer has no mission feed.
+  final void Function(Map<String, dynamic> mission)? onMission;
   final void Function(Map<String, dynamic> tab) onTabMenu;
   final void Function(Map<String, dynamic> project) onProjectMenu;
 
@@ -626,8 +666,14 @@ class _Workspaces extends StatelessWidget {
         final members = ((mission['members'] as List?) ?? const [])
             .cast<Map<String, dynamic>>()
             .where((m) => sessions.containsKey(m['session']));
+        // Members open from the mission chat; mark them placed so they do not
+        // spill into "其他".
+        for (final member in members) {
+          placed.add(member['session'] as String);
+        }
         children.add(
           _GroupTile(
+            key: Key('mission.${mission['id']}'),
             icon: Icons.groups_outlined,
             title: mission['title'] as String? ?? '',
             subtitle: [
@@ -637,17 +683,9 @@ class _Workspaces extends StatelessWidget {
               if ((mission['asks'] as List?)?.isNotEmpty ?? false) '有问题待回答',
             ].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
             onMenu: live ? () => onMissionMenu(mission) : null,
+            onTap: live && onMission != null ? () => onMission!(mission) : null,
           ),
         );
-        for (final member in members) {
-          children.add(
-            session(
-              member['session'] as String,
-              label: '@${member['handle']}',
-              indent: 24,
-            ),
-          );
-        }
       }
       for (final tab in tabs.where((t) => t['project'] == project)) {
         final ids = [
@@ -731,22 +769,27 @@ class _Header extends StatelessWidget {
 
 class _GroupTile extends StatelessWidget {
   const _GroupTile({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onMenu,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback? onMenu;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => ListTile(
+    contentPadding: const EdgeInsetsDirectional.only(start: 16, end: 4),
     leading: Icon(icon),
     title: Text(title),
     subtitle: Text(subtitle),
+    onTap: onTap,
     trailing: onMenu == null
         ? null
         : IconButton(icon: const Icon(Icons.more_vert), onPressed: onMenu),

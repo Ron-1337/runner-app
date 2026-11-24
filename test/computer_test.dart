@@ -252,8 +252,12 @@ void main() {
     double y(String text) => tester.getTopLeft(find.text(text).first).dy;
     expect(find.text('runner'), findsOneWidget);
     expect(find.text('Ship it'), findsOneWidget);
-    expect(find.textContaining('@coder'), findsOneWidget);
-    expect(find.textContaining('需要你'), findsOneWidget);
+    // Mission members open from the mission chat, not in the workspace list,
+    // and do not spill into 其他.
+    expect(find.text('Coder'), findsNothing);
+    expect(find.textContaining('@coder'), findsNothing);
+    expect(find.byIcon(Icons.expand_more), findsNothing);
+    expect(find.byIcon(Icons.expand_less), findsNothing);
     // The workspace's mission and single-pane tab, then a split tab outside any workspace.
     expect(y('runner') < y('Ship it'), isTrue);
     expect(y('Ship it') < y('Fix the build'), isTrue);
@@ -261,6 +265,15 @@ void main() {
     expect(y('其他') < y('Pair review'), isTrue);
     expect(find.text('标签页 · 2 个会话'), findsOneWidget);
     expect(find.text('终端'), findsOneWidget, reason: 'an untitled shell');
+    // The mission's more button aligns horizontally with regular sessions'.
+    final missionMore = find.descendant(
+      of: find.byKey(const Key('mission.m1')),
+      matching: find.byIcon(Icons.more_vert),
+    );
+    expect(
+      tester.getCenter(missionMore).dx,
+      tester.getCenter(find.byKey(const Key('menu-s1'))).dx,
+    );
   });
 
   testWidgets('starts a chat with a runtime and opens it', (tester) async {
@@ -481,6 +494,75 @@ void main() {
     await tester.pumpAndSettle();
     expect(core.of('attach').single['control'], 'take');
     expect(core.notified, isEmpty, reason: 'it has no notifications');
+  });
+
+  testWidgets('the terminal uses the font, size and cursor from settings', (
+    tester,
+  ) async {
+    final core = await open(tester);
+    final store = Store();
+    await store.setTerminalFont(TerminalFont.system);
+    await store.setTerminalFontSize(16);
+    await store.setTerminalCursor(TerminalCursor.bar);
+    await store.setTerminalCursorAlways(true);
+    await tester.tap(find.text('Fix the build'));
+    await tester.pumpAndSettle();
+    expect(core.of('attach'), hasLength(1));
+    final view = tester.widget<TerminalView>(find.byType(TerminalView));
+    expect(view.textStyle.fontFamily, isNot('JetBrainsMono'));
+    expect(view.textStyle.fontFamilyFallback.first, 'JetBrainsMono');
+    expect(view.textStyle.fontSize, 16);
+    expect(view.cursorType, TerminalCursorType.verticalBar);
+    expect(view.alwaysShowCursor, isTrue);
+  });
+
+  testWidgets('the 团队 button lists the computer\'s crews', (tester) async {
+    final core = await open(tester);
+    await tester.tap(find.byKey(const Key('crews')));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(AppBar, '团队'), findsOneWidget);
+    expect(find.text('trio'), findsOneWidget);
+    expect(find.text('还没有成员'), findsOneWidget);
+    expect(core.of('catalog'), isNotEmpty);
+  });
+
+  testWidgets('a mission opens as a chat, and a member as its own session', (
+    tester,
+  ) async {
+    final core = await open(
+      tester,
+      features: [...allFeatures, 'feed', 'follow', 'unfollow', 'post'],
+    );
+    core.answers['feed'] = (_) => {
+      'entries': [
+        {
+          'id': 'e1',
+          'ts': '2026-11-24T04:00:00Z',
+          'from': 'coder',
+          'to': [],
+          'kind': 'message',
+          'text': 'On it.',
+        },
+      ],
+      'before': null,
+    };
+    await tester.tap(find.byKey(const Key('mission.m1')));
+    await tester.pumpAndSettle();
+    expect(core.of('follow').single['mission'], 'm1');
+    expect(find.text('On it.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('members')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('memberChat.coder')));
+    await tester.pumpAndSettle();
+    // The member's own session, as the desktop opens it beside the chat.
+    expect(core.of('attach').single['session'], 's4');
+    expect(find.byType(TerminalView), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(core.of('unfollow').single['mission'], 'm1');
   });
 
   testWidgets('a terminal attaches again after a reconnect', (tester) async {

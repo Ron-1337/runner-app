@@ -1,6 +1,6 @@
 [package]
 name = "runner_mobile_core"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 publish = false
 license = "MIT"
@@ -26,6 +26,13 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 runner-server = { git = "https://github.com/Ron-1337/runner-server", rev = "1e8317d" }
 axum = "0.8"
 tempfile = "3"
+# Runner's own host core, which answers the crew requests in tests/crews.rs.
+runner-daemon = { git = "https://github.com/Ron-1337/runner", rev = "12c867d2f170f7a86900a4632f57f6264934b069" }
+
+# runner-daemon (tests only) needs the alacritty_terminal Runner vendors, as
+# Runner's own workspace patches it in.
+[patch.crates-io]
+alacritty_terminal = { git = "https://github.com/Ron-1337/runner", rev = "12c867d2f170f7a86900a4632f57f6264934b069" }
 
 [profile.release]
 lto = "thin"

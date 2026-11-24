@@ -118,3 +118,94 @@ fn session_mission_and_workspace_actions() {
         action(json!({"type": "archive", "target": {"kind": kind, "id": "x"}}));
     }
 }
+
+#[test]
+fn managing_crews() {
+    match action(json!({"type": "crew", "crew": "c1"})) {
+        ActionRequest::Crew { crew, .. } => assert_eq!(crew, "c1"),
+        _ => panic!("crew"),
+    }
+    match action(json!({"type": "createCrew", "name": "Duo", "conventions": null})) {
+        ActionRequest::CreateCrew {
+            name, conventions, ..
+        } => {
+            assert_eq!((name.as_str(), conventions), ("Duo", None))
+        }
+        _ => panic!("createCrew"),
+    }
+    match action(
+        json!({"type": "updateCrew", "crew": "c1", "name": "Trio", "conventions": "Review first."}),
+    ) {
+        ActionRequest::UpdateCrew {
+            crew, conventions, ..
+        } => assert_eq!(
+            (crew.as_str(), conventions.as_deref()),
+            ("c1", Some("Review first."))
+        ),
+        _ => panic!("updateCrew"),
+    }
+    assert!(matches!(
+        action(json!({"type": "deleteCrew", "crew": "c1"})),
+        ActionRequest::DeleteCrew { .. }
+    ));
+    match action(
+        json!({"type": "addSlot", "crew": "c1", "role": "r1", "handle": "coder", "runtime": null, "model": null}),
+    ) {
+        ActionRequest::AddSlot {
+            role,
+            handle,
+            runtime,
+            ..
+        } => assert_eq!(
+            (role.as_str(), handle.as_str(), runtime),
+            ("r1", "coder", None)
+        ),
+        _ => panic!("addSlot"),
+    }
+    match action(
+        json!({"type": "updateSlot", "slot": "s1", "handle": "reviewer", "runtime": "codex", "model": "gpt-6.1", "effort": "high", "speed": "fast"}),
+    ) {
+        ActionRequest::UpdateSlot { handle, speed, .. } => assert_eq!(
+            (handle.as_str(), speed.as_deref()),
+            ("reviewer", Some("fast"))
+        ),
+        _ => panic!("updateSlot"),
+    }
+    assert!(matches!(
+        action(json!({"type": "removeSlot", "slot": "s1"})),
+        ActionRequest::RemoveSlot { .. }
+    ));
+    match action(json!({"type": "reorderSlots", "crew": "c1", "order": ["s2", "s1"]})) {
+        ActionRequest::ReorderSlots { order, .. } => assert_eq!(order, ["s2", "s1"]),
+        _ => panic!("reorderSlots"),
+    }
+}
+
+#[test]
+fn mission_chat() {
+    for request in [
+        json!({"type": "follow", "mission": "m1"}),
+        json!({"type": "unfollow", "mission": "m1"}),
+        json!({"type": "feed", "mission": "m1", "before": null, "limit": 50}),
+        json!({"type": "feed", "mission": "m1", "before": "cursor", "limit": 50}),
+    ] {
+        decode(request);
+    }
+    match decode(json!({"type": "post", "mission": "m1", "to": ["coder"], "text": "Ship it"})) {
+        ClientMessage::Post(post) => {
+            assert_eq!(
+                (post.to, post.text.as_str()),
+                (vec!["coder".into()], "Ship it")
+            )
+        }
+        _ => panic!("post"),
+    }
+    match decode(json!({"type": "post", "mission": "m1", "to": [], "text": "Everyone"})) {
+        ClientMessage::Post(post) => assert!(post.to.is_empty()),
+        _ => panic!("post to everyone"),
+    }
+    match decode(json!({"type": "answer", "mission": "m1", "question": "q1", "text": "Yes"})) {
+        ClientMessage::Answer(answer) => assert_eq!(answer.question, "q1"),
+        _ => panic!("answer"),
+    }
+}

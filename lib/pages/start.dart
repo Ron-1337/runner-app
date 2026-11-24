@@ -19,6 +19,7 @@ class StartPage extends StatefulWidget {
     required this.remote,
     required this.kind,
     this.project,
+    this.crew,
   });
 
   final Remote remote;
@@ -26,6 +27,9 @@ class StartPage extends StatefulWidget {
 
   /// The workspace to start in, when started from one.
   final String? project;
+
+  /// The crew a mission starts with, when started from one.
+  final String? crew;
 
   @override
   State<StartPage> createState() => _StartPageState();
@@ -73,7 +77,10 @@ class _StartPageState extends State<StartPage> {
         _role = _roles.firstOrNull?['id'] as String?;
         _byRole = _roles.isNotEmpty;
         _runtime = _runtimes.firstOrNull?['name'] as String?;
-        _crew = _crews.firstOrNull?['id'] as String?;
+        _crew =
+            _crews.where((c) => c['id'] == widget.crew).firstOrNull?['id']
+                as String? ??
+            _crews.firstOrNull?['id'] as String?;
       });
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
@@ -262,7 +269,7 @@ class _StartPageState extends State<StartPage> {
     if (_crews.isEmpty)
       const Padding(
         padding: EdgeInsets.only(top: 8),
-        child: Text('这台电脑上还没有团队，请先在 Runner 中创建。'),
+        child: Text('这台电脑上还没有团队，请先在电脑页的「团队」中新建。'),
       ),
     TextField(
       key: const Key('title'),
