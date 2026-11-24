@@ -198,3 +198,129 @@ fn the_app_manages_crews_on_runner() {
             .all(|c| c["id"] != crew.as_str())
     );
 }
+
+impl Host {
+    /// Sends a non-action request ([ClientMessage::Feed], `Post`, `Answer`) as
+    /// the app does, to the handler `runnerd` routes it to.
+    fn chat(&self, mut request: Value) -> Result<Value, String> {
+        request["id"] = 7.into();
+        let message = ClientMessage::decode(&serde_json::to_vec(&request).unwrap())
+            .map_err(|e| format!("{request}: {}", e.message))?;
+        let failed = |f: runner_daemon::companion::core::Failure| f.1.to_owned();
+        match message {
+            ClientMessage::Feed(feed) => self
+                .daemon
+                .feed(feed)
+                .map(|page| serde_json::to_value(page).unwrap())
+                .map_err(failed),
+            ClientMessage::Post(post) => {
+                self.daemon.post(post).map(|()| Value::Null).map_err(failed)
+            }
+            ClientMessage::Answer(answer) => self
+                .daemon
+                .answer(answer)
+                .map(|()| Value::Null)
+                .map_err(failed),
+            other => panic!("{request} is not a chat request: {other:?}"),
+        }
+    }
+}
+
+/// A mission whose one member runs `cat` in place of an agent, so it starts
+/// anywhere; then the chat the app shows: the feed, a post to everyone and
+/// one to a member, as the app sends them.
+#[test]
+fn the_app_chats_in_a_mission_on_runner() {
+    let host = host();
+    // Pick a runtime without a minimum-version gate so Runner does not probe
+    // `cat --version` and reject uutils coreutils' 0.0.x version on CI.
+    let role = host.ok(json!({
+        "type": "createRole", "handle": "coder", "name": "Coder", "runtime": "trae",
+        "command": "cat", "args": [], "workingDir": null, "systemPrompt": null,
+        "model": null, "effort": null, "speed": null, "permissionMode": null,
+    }))["role"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let crew = host.ok(json!({"type": "createCrew", "name": "Solo", "conventions": null}))["crew"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    host.ok(json!({"type": "addSlot", "crew": crew, "role": role, "handle": "coder", "runtime": null, "model": null}));
+    let cwd = host._dir.path().join("home");
+    let mission = host.ok(json!({
+        "type": "startMission", "crew": crew, "project": null, "title": "Ship it",
+        "goal": "Ship the release.", "cwd": cwd, "cols": 80, "rows": 24,
+    }))["mission"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let feed = || {
+        host.chat(json!({"type": "feed", "mission": mission, "before": null, "limit": 50}))
+            .unwrap()
+    };
+    let page = feed();
+    let entries = page["entries"].as_array().unwrap();
+    let goal = entries
+        .iter()
+        .find(|e| e["signal"] == "mission_goal")
+        .expect("the goal is in the feed");
+    assert_eq!(
+        goal["payload"]["text"], "Ship the release.",
+        "the app reads payload.text"
+    );
+
+    // As the composer sends them: to everyone, to a member chosen as a
+    // recipient, and to a member named first in the text.
+    for (to, text) in [
+        (json!([]), "Status, everyone?"),
+        (json!(["coder"]), "Only you."),
+        (json!([]), "@coder Ship it."),
+    ] {
+        host.chat(json!({"type": "post", "mission": mission, "to": to, "text": text}))
+            .unwrap();
+    }
+    // A leading @name that is no member is refused, with Runner's reason.
+    let refused = host
+        .chat(json!({"type": "post", "mission": mission, "to": [], "text": "@nobody hi"}))
+        .unwrap_err();
+    assert!(!refused.is_empty());
+    let page = feed();
+    // The app shows these as the person's own messages: kind message, from
+    // human, to the members Runner settled on (newest first).
+    let posts: Vec<(&str, Vec<String>)> = page["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "message" && e["from"] == "human")
+        .map(|e| (e["text"].as_str().unwrap(), recipients(&e["to"])))
+        .collect();
+    assert_eq!(
+        posts,
+        [
+            ("@coder Ship it.", vec!["coder".to_owned()]),
+            ("Only you.", vec!["coder".to_owned()]),
+            ("Status, everyone?", vec![]),
+        ],
+        "{page}"
+    );
+
+    // A stopped mission still takes posts, so the app lets the person write.
+    host.ok(json!({"type": "stopMission", "mission": mission}));
+    host.chat(json!({"type": "post", "mission": mission, "to": [], "text": "For later."}))
+        .unwrap();
+    assert_eq!(feed()["entries"][0]["text"], "For later.");
+}
+
+/// What `recipients()` in `lib/pages/mission.dart` reads: one handle or several.
+fn recipients(target: &Value) -> Vec<String> {
+    match target {
+        Value::String(one) => vec![one.clone()],
+        Value::Array(several) => several
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect(),
+        _ => Vec::new(),
+    }
+}

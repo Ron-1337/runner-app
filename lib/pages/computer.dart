@@ -7,6 +7,7 @@ import '../core/remote.dart';
 import '../core/store.dart';
 import '../services.dart';
 import 'crews.dart';
+import 'mission.dart';
 import 'start.dart';
 import 'terminal.dart';
 
@@ -138,6 +139,22 @@ class _ComputerPageState extends State<ComputerPage> {
           runtime: runtime,
           account: widget.account,
           computer: widget.computer['id'] as String?,
+        ),
+      ),
+    );
+  }
+
+  /// A crew mission as a chat; its members' own sessions open from there.
+  Future<void> _openMission(Map<String, dynamic> mission) async {
+    final overview = _overview;
+    if (overview == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => MissionPage(
+          remote: _remote,
+          mission: mission['id'] as String,
+          overview: overview,
+          openSession: _openTerminal,
         ),
       ),
     );
@@ -564,6 +581,7 @@ class _ComputerPageState extends State<ComputerPage> {
                       onSession: _openSession,
                       onSessionMenu: _sessionMenu,
                       onMissionMenu: _missionMenu,
+                      onMission: _remote.has('feed') ? _openMission : null,
                       onTabMenu: _tabMenu,
                       onProjectMenu: _projectMenu,
                     ),
@@ -603,6 +621,7 @@ class _Workspaces extends StatelessWidget {
     required this.onSession,
     required this.onSessionMenu,
     required this.onMissionMenu,
+    this.onMission,
     required this.onTabMenu,
     required this.onProjectMenu,
   });
@@ -612,6 +631,9 @@ class _Workspaces extends StatelessWidget {
   final void Function(String id, Map<String, dynamic> session) onSession;
   final void Function(String id, Map<String, dynamic> session) onSessionMenu;
   final void Function(Map<String, dynamic> mission) onMissionMenu;
+
+  /// Opens a mission as a chat; null when the computer has no mission feed.
+  final void Function(Map<String, dynamic> mission)? onMission;
   final void Function(Map<String, dynamic> tab) onTabMenu;
   final void Function(Map<String, dynamic> project) onProjectMenu;
 
@@ -646,6 +668,7 @@ class _Workspaces extends StatelessWidget {
             .where((m) => sessions.containsKey(m['session']));
         children.add(
           _GroupTile(
+            key: Key('mission.${mission['id']}'),
             icon: Icons.groups_outlined,
             title: mission['title'] as String? ?? '',
             subtitle: [
@@ -655,6 +678,7 @@ class _Workspaces extends StatelessWidget {
               if ((mission['asks'] as List?)?.isNotEmpty ?? false) '有问题待回答',
             ].whereType<String>().where((s) => s.isNotEmpty).join(' · '),
             onMenu: live ? () => onMissionMenu(mission) : null,
+            onTap: live && onMission != null ? () => onMission!(mission) : null,
           ),
         );
         for (final member in members) {
@@ -749,22 +773,26 @@ class _Header extends StatelessWidget {
 
 class _GroupTile extends StatelessWidget {
   const _GroupTile({
+    super.key,
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onMenu,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
   final VoidCallback? onMenu;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => ListTile(
     leading: Icon(icon),
     title: Text(title),
     subtitle: Text(subtitle),
+    onTap: onTap,
     trailing: onMenu == null
         ? null
         : IconButton(icon: const Icon(Icons.more_vert), onPressed: onMenu),

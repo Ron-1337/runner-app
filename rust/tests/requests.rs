@@ -180,3 +180,32 @@ fn managing_crews() {
         _ => panic!("reorderSlots"),
     }
 }
+
+#[test]
+fn mission_chat() {
+    for request in [
+        json!({"type": "follow", "mission": "m1"}),
+        json!({"type": "unfollow", "mission": "m1"}),
+        json!({"type": "feed", "mission": "m1", "before": null, "limit": 50}),
+        json!({"type": "feed", "mission": "m1", "before": "cursor", "limit": 50}),
+    ] {
+        decode(request);
+    }
+    match decode(json!({"type": "post", "mission": "m1", "to": ["coder"], "text": "Ship it"})) {
+        ClientMessage::Post(post) => {
+            assert_eq!(
+                (post.to, post.text.as_str()),
+                (vec!["coder".into()], "Ship it")
+            )
+        }
+        _ => panic!("post"),
+    }
+    match decode(json!({"type": "post", "mission": "m1", "to": [], "text": "Everyone"})) {
+        ClientMessage::Post(post) => assert!(post.to.is_empty()),
+        _ => panic!("post to everyone"),
+    }
+    match decode(json!({"type": "answer", "mission": "m1", "question": "q1", "text": "Yes"})) {
+        ClientMessage::Answer(answer) => assert_eq!(answer.question, "q1"),
+        _ => panic!("answer"),
+    }
+}
