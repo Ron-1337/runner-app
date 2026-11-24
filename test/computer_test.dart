@@ -252,9 +252,12 @@ void main() {
     double y(String text) => tester.getTopLeft(find.text(text).first).dy;
     expect(find.text('runner'), findsOneWidget);
     expect(find.text('Ship it'), findsOneWidget);
-    // Crew missions start collapsed, and their members do not spill into 其他.
+    // Mission members open from the mission chat, not in the workspace list,
+    // and do not spill into 其他.
     expect(find.text('Coder'), findsNothing);
     expect(find.textContaining('@coder'), findsNothing);
+    expect(find.byIcon(Icons.expand_more), findsNothing);
+    expect(find.byIcon(Icons.expand_less), findsNothing);
     // The workspace's mission and single-pane tab, then a split tab outside any workspace.
     expect(y('runner') < y('Ship it'), isTrue);
     expect(y('Ship it') < y('Fix the build'), isTrue);
@@ -262,28 +265,6 @@ void main() {
     expect(y('其他') < y('Pair review'), isTrue);
     expect(find.text('标签页 · 2 个会话'), findsOneWidget);
     expect(find.text('终端'), findsOneWidget, reason: 'an untitled shell');
-
-    // Expand button sits to the left of the mission's more button.
-    final mission = find.byKey(const Key('mission.m1'));
-    final expand = find.byKey(const Key('missionExpand.m1'));
-    final more = find.descendant(
-      of: mission,
-      matching: find.byIcon(Icons.more_vert),
-    );
-    expect(tester.getTopLeft(expand).dx < tester.getTopLeft(more).dx, isTrue);
-
-    await tester.tap(expand);
-    await tester.pumpAndSettle();
-    expect(find.text('Coder'), findsOneWidget);
-    expect(find.textContaining('@coder'), findsOneWidget);
-    expect(find.textContaining('需要你'), findsOneWidget);
-    expect(y('Ship it') < y('Coder'), isTrue);
-    expect(y('Coder') < y('Fix the build'), isTrue);
-
-    await tester.tap(expand);
-    await tester.pumpAndSettle();
-    expect(find.text('Coder'), findsNothing);
-    expect(find.textContaining('@coder'), findsNothing);
   });
 
   testWidgets('starts a chat with a runtime and opens it', (tester) async {
