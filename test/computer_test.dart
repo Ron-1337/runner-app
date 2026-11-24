@@ -265,6 +265,15 @@ void main() {
     expect(y('其他') < y('Pair review'), isTrue);
     expect(find.text('标签页 · 2 个会话'), findsOneWidget);
     expect(find.text('终端'), findsOneWidget, reason: 'an untitled shell');
+    // The mission's more button aligns horizontally with regular sessions'.
+    final missionMore = find.descendant(
+      of: find.byKey(const Key('mission.m1')),
+      matching: find.byIcon(Icons.more_vert),
+    );
+    expect(
+      tester.getCenter(missionMore).dx,
+      tester.getCenter(find.byKey(const Key('menu-s1'))).dx,
+    );
   });
 
   testWidgets('starts a chat with a runtime and opens it', (tester) async {

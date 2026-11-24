@@ -785,6 +785,7 @@ class _GroupTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListTile(
+    contentPadding: const EdgeInsetsDirectional.only(start: 16, end: 4),
     leading: Icon(icon),
     title: Text(title),
     subtitle: Text(subtitle),
