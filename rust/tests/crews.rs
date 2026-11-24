@@ -232,8 +232,10 @@ impl Host {
 #[test]
 fn the_app_chats_in_a_mission_on_runner() {
     let host = host();
+    // Pick a runtime without a minimum-version gate so Runner does not probe
+    // `cat --version` and reject uutils coreutils' 0.0.x version on CI.
     let role = host.ok(json!({
-        "type": "createRole", "handle": "coder", "name": "Coder", "runtime": "codex",
+        "type": "createRole", "handle": "coder", "name": "Coder", "runtime": "trae",
         "command": "cat", "args": [], "workingDir": null, "systemPrompt": null,
         "model": null, "effort": null, "speed": null, "permissionMode": null,
     }))["role"]
