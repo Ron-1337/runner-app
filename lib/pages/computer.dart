@@ -6,6 +6,7 @@ import '../core/core.dart';
 import '../core/remote.dart';
 import '../core/store.dart';
 import '../services.dart';
+import 'crews.dart';
 import 'start.dart';
 import 'terminal.dart';
 
@@ -162,6 +163,16 @@ class _ComputerPageState extends State<ComputerPage> {
       unawaited(_refresh());
       showMessage(context, '任务已启动');
     }
+  }
+
+  /// The computer's crews; a mission started from one shows here like any other.
+  Future<void> _crews() async {
+    final started = await Navigator.of(context).push<Started>(
+      MaterialPageRoute(builder: (_) => CrewsPage(remote: _remote)),
+    );
+    if (started == null || !mounted) return;
+    unawaited(_refresh());
+    showMessage(context, '任务已启动');
   }
 
   Future<void> _newProject() async {
@@ -517,6 +528,13 @@ class _ComputerPageState extends State<ComputerPage> {
       appBar: AppBar(
         title: Text(widget.computer['name'] as String? ?? '电脑'),
         actions: [
+          if (_remote.has('catalog'))
+            IconButton(
+              key: const Key('crews'),
+              tooltip: '团队',
+              icon: const Icon(Icons.groups_outlined),
+              onPressed: live ? _crews : null,
+            ),
           IconButton(
             tooltip: '刷新',
             icon: const Icon(Icons.refresh),
