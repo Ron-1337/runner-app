@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:material_ui/material_ui.dart';
 import 'package:xterm/xterm.dart';
@@ -11,6 +13,7 @@ import '../core/mouse.dart';
 import '../core/remote.dart';
 import '../core/sgr.dart';
 import '../core/store.dart';
+import '../core/terminal_size.dart';
 import '../services.dart';
 import 'terminal_keyboard.dart';
 
@@ -54,6 +57,7 @@ class _TerminalPageState extends State<TerminalPage> {
     mouseHandler: TrackedMouseHandler(_mouse),
   );
   final _controller = TerminalController();
+  final _scroll = ScrollController();
   final _focus = FocusNode();
   final _keyboard = GlobalKey<TerminalKeyboardState>();
 
@@ -82,9 +86,16 @@ class _TerminalPageState extends State<TerminalPage> {
   var _wasConnected = true;
   late final ByteConversionSink _decoder;
 
-  (int, int)? _size;
+  final _sizePolicy = TerminalSizePolicy();
+  (int, int)? _lastViewportSize;
+  TerminalFont? _cellFont;
+  double? _cellFontSize;
+  TextScaler? _cellTextScaler;
+  Size? _cellSize;
   var _attached = false;
   var _inSnapshot = false;
+  var _followBottom = true;
+  var _scrollScheduled = false;
 
   /// Who sets the terminal's size: `you`, `desktop`, `browser` or `none`.
   String _controllerKind = 'you';
@@ -98,7 +109,6 @@ class _TerminalPageState extends State<TerminalPage> {
       allowMalformed: true,
     ).startChunkedConversion(_TerminalSink(_terminal, _mouse));
     _terminal.onOutput = _input;
-    _terminal.onResize = (cols, rows, _, _) => _resized(cols, rows);
     _events = widget.remote.pushes.listen(_onEvent);
     widget.remote.addListener(_onState);
     _focus.addListener(_onFocus);
@@ -176,6 +186,7 @@ class _TerminalPageState extends State<TerminalPage> {
       _send({'type': 'detach', 'session': widget.session});
     }
     _controller.dispose();
+    _scroll.dispose();
     _focus.dispose();
     super.dispose();
   }
@@ -183,7 +194,7 @@ class _TerminalPageState extends State<TerminalPage> {
   void _onState() {
     if (!mounted) return;
     setState(() {});
-    final size = _size;
+    final size = _sizePolicy.controlSize;
     if (widget.remote.connected && !_wasConnected && size != null) {
       _attach(size, 'ifFree');
     }
@@ -221,6 +232,7 @@ class _TerminalPageState extends State<TerminalPage> {
   }
 
   Future<bool> _attach((int, int) size, String control) {
+    _sizePolicy.recordReported(size.$1, size.$2);
     return _send({
       'type': 'attach',
       'session': widget.session,
@@ -231,27 +243,146 @@ class _TerminalPageState extends State<TerminalPage> {
     });
   }
 
-  void _resized(int cols, int rows) {
-    _size = (cols, rows);
-    if (!widget.remote.connected) return;
-    if (!_attached) {
-      _attached = true;
-      _attach((cols, rows), 'take').then((ok) {
-        if (ok) _claim();
-      });
-    } else if (_controllerKind == 'you') {
-      _send({
-        'type': 'viewport',
-        'session': widget.session,
-        'cols': cols,
-        'rows': rows,
-      });
+  void _reportViewport((int, int) size) {
+    _sizePolicy.recordReported(size.$1, size.$2);
+    _send({
+      'type': 'viewport',
+      'session': widget.session,
+      'cols': size.$1,
+      'rows': size.$2,
+    });
+  }
+
+  /// Measures a single character cell the same way xterm's `TerminalPainter`
+  /// does, cached across rebuilds until the font, size or text scaler changes.
+  Size _measureCellSize(TerminalStyle style, TextScaler textScaler) {
+    if (_cellSize != null &&
+        _cellFont == _font &&
+        _cellFontSize == _fontSize &&
+        _cellTextScaler == textScaler) {
+      return _cellSize!;
+    }
+    const sample = 'mmmmmmmmmm';
+    final textStyle = style.toTextStyle();
+    final builder = ui.ParagraphBuilder(textStyle.getParagraphStyle())
+      ..pushStyle(textStyle.getTextStyle(textScaler: textScaler))
+      ..addText(sample);
+    final paragraph = builder.build()
+      ..layout(const ui.ParagraphConstraints(width: double.infinity));
+    final size = Size(
+      paragraph.maxIntrinsicWidth / sample.length,
+      paragraph.height,
+    );
+    paragraph.dispose();
+    _cellFont = _font;
+    _cellFontSize = _fontSize;
+    _cellTextScaler = textScaler;
+    _cellSize = size;
+    return size;
+  }
+
+  bool _syncTerminalSize({required bool notify}) {
+    final target = _sizePolicy.terminalSize;
+    if (target == null) return false;
+    if (_terminal.viewWidth == target.$1 && _terminal.viewHeight == target.$2) {
+      return false;
+    }
+    _terminal.resize(target.$1, target.$2);
+    if (notify) _terminal.notifyListeners();
+    return true;
+  }
+
+  void _layoutViewport(
+    BuildContext context,
+    BoxConstraints constraints,
+    TerminalStyle style,
+    TextScaler textScaler,
+    double keyboardInset,
+  ) {
+    if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) return;
+    final cell = _measureCellSize(style, textScaler);
+    if (cell.width <= 0 || cell.height <= 0) return;
+    final padding = MediaQuery.paddingOf(context);
+    final viewportHeight = constraints.maxHeight - padding.vertical;
+    if (constraints.maxWidth <= cell.width || viewportHeight <= cell.height) {
+      return;
+    }
+    final cols = math.max(1, constraints.maxWidth ~/ cell.width);
+    final rows = math.max(1, viewportHeight ~/ cell.height);
+    final composing = _composing != null && _composing!.isNotEmpty;
+    final int keyboardClosedRows;
+    if (composing &&
+        _sizePolicy.keyboardClosedRows != null &&
+        _lastViewportSize?.$1 == cols) {
+      keyboardClosedRows = _sizePolicy.keyboardClosedRows!;
+    } else {
+      keyboardClosedRows = math.max(
+        1,
+        (viewportHeight + keyboardInset) ~/ cell.height,
+      );
+    }
+    final viewportChanged = _lastViewportSize != (cols, rows);
+    _lastViewportSize = (cols, rows);
+    final update = _sizePolicy.onViewport(
+      cols: cols,
+      rows: rows,
+      keyboardClosedRows: keyboardClosedRows,
+    );
+    final terminalChanged = _syncTerminalSize(notify: false);
+    if (widget.remote.connected) {
+      if (!_attached) {
+        _attached = true;
+        final size = _sizePolicy.initialAttachSize!;
+        _attach(size, 'take').then((ok) {
+          if (ok) _claim();
+        });
+      } else if (_controllerKind == 'you' && update != null) {
+        _reportViewport(update);
+      }
+    }
+    if ((viewportChanged || terminalChanged) && _followBottom) {
+      _scheduleScrollToBottom();
     }
   }
 
+  void _onServerRows(int rows) {
+    _sizePolicy.onServerRows(rows);
+    _syncTerminalSize(notify: true);
+  }
+
+  void _scheduleScrollToBottom() {
+    if (_scrollScheduled) return;
+    _scrollScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _scrollScheduled = false;
+      if (!mounted || !_followBottom || !_scroll.hasClients) return;
+      final position = _scroll.position;
+      if (!position.hasContentDimensions) return;
+      final maxExtent = position.maxScrollExtent;
+      if ((maxExtent - position.pixels).abs() > 0.5) {
+        position.jumpTo(maxExtent);
+      }
+    });
+  }
+
+  bool _onScrollNotification(ScrollNotification notification) {
+    final metrics = notification.metrics;
+    // Ignore InfiniteScrollView in alt-buffer mode, whose extent is infinite.
+    if (!metrics.maxScrollExtent.isFinite) return false;
+    if ((notification is ScrollUpdateNotification &&
+            notification.dragDetails != null) ||
+        notification is ScrollEndNotification) {
+      _followBottom = metrics.maxScrollExtent - metrics.pixels <= 1.0;
+    }
+    return false;
+  }
+
   void _takeControl() {
-    final size = _size;
+    final size = _sizePolicy.controlSize;
     if (size == null) return;
+    _followBottom = true;
+    _scheduleScrollToBottom();
+    _sizePolicy.recordReported(size.$1, size.$2);
     _send({
       'type': 'takeControl',
       'session': widget.session,
@@ -286,6 +417,8 @@ class _TerminalPageState extends State<TerminalPage> {
 
   void _type(String data) {
     if (!_live || _controllerKind != 'you') return;
+    _followBottom = true;
+    _scheduleScrollToBottom();
     _send({
       'type': 'input',
       'session': widget.session,
@@ -298,19 +431,27 @@ class _TerminalPageState extends State<TerminalPage> {
     if (message['session'] != widget.session) return;
     switch (event.type) {
       case 'snapshot':
+        final rows = message['rows'];
+        if (rows is int && rows > 0) _onServerRows(rows);
         if (!_inSnapshot) {
           // A snapshot replaces the screen: on attach, and after the host resyncs.
           _terminal.write('\x1bc');
         }
         _inSnapshot = message['more'] == true;
         _decoder.add(base64Decode(message['data'] as String));
+        _followBottom = true;
+        _scheduleScrollToBottom();
       case 'output':
         _decoder.add(base64Decode(message['data'] as String));
+        if (_followBottom) _scheduleScrollToBottom();
       case 'resized':
+        final rows = message['rows'];
+        if (rows is int && rows > 0) _onServerRows(rows);
         final controller = message['controller'] as Map<String, dynamic>?;
         setState(
           () => _controllerKind = controller?['kind'] as String? ?? 'none',
         );
+        if (_followBottom) _scheduleScrollToBottom();
       case 'closed':
         setState(() => _ended = '会话已结束');
     }
@@ -320,8 +461,12 @@ class _TerminalPageState extends State<TerminalPage> {
   Widget build(BuildContext context) {
     final reconnecting = _ended == null && !widget.remote.connected;
     // Read first, so the page rebuilds when the keyboard comes and goes.
-    final keyboardOpen =
-        MediaQuery.viewInsetsOf(context).bottom > 0 && _focus.hasFocus;
+    final viewInsetsBottom = MediaQuery.viewInsetsOf(context).bottom;
+    final viewPaddingBottom = MediaQuery.viewPaddingOf(context).bottom;
+    final keyboardInset = math.max(0.0, viewInsetsBottom - viewPaddingBottom);
+    final keyboardOpen = viewInsetsBottom > 0 && _focus.hasFocus;
+    final style = terminalStyle(_font, _fontSize);
+    final textScaler = MediaQuery.textScalerOf(context);
     final banner = reconnecting ? null : _ended ?? _controlBanner();
     return Scaffold(
       appBar: AppBar(
@@ -370,16 +515,33 @@ class _TerminalPageState extends State<TerminalPage> {
                 },
                 // The phone keyboard goes through TerminalKeyboard; the view
                 // keeps only a hardware keyboard's keys.
-                child: TerminalView(
-                  _terminal,
-                  controller: _controller,
-                  focusNode: _focus,
-                  autofocus: true,
-                  hardwareKeyboardOnly: true,
-                  readOnly: !_live || _controllerKind != 'you',
-                  textStyle: terminalStyle(_font, _fontSize),
-                  cursorType: cursorType(_cursor),
-                  alwaysShowCursor: _cursorAlways,
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: _onScrollNotification,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      _layoutViewport(
+                        context,
+                        constraints,
+                        style,
+                        textScaler,
+                        keyboardInset,
+                      );
+                      return TerminalView(
+                        _terminal,
+                        controller: _controller,
+                        scrollController: _scroll,
+                        autoResize: false,
+                        focusNode: _focus,
+                        autofocus: true,
+                        hardwareKeyboardOnly: true,
+                        readOnly: !_live || _controllerKind != 'you',
+                        textStyle: style,
+                        textScaler: textScaler,
+                        cursorType: cursorType(_cursor),
+                        alwaysShowCursor: _cursorAlways,
+                      );
+                    },
+                  ),
                 ),
               ),
             ),
