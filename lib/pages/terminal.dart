@@ -88,6 +88,10 @@ class _TerminalPageState extends State<TerminalPage> {
 
   final _sizePolicy = TerminalSizePolicy();
   (int, int)? _lastViewportSize;
+
+  /// Rows measured with the keyboard closed, for the width and cell they
+  /// were measured at.
+  ({double width, Size cell, int rows})? _closedRows;
   TerminalFont? _cellFont;
   double? _cellFontSize;
   TextScaler? _cellTextScaler;
@@ -297,6 +301,7 @@ class _TerminalPageState extends State<TerminalPage> {
     BoxConstraints constraints,
     TerminalStyle style,
     TextScaler textScaler,
+    double keyboardInset,
   ) {
     if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) return;
     final cell = _measureCellSize(style, textScaler);
@@ -308,9 +313,19 @@ class _TerminalPageState extends State<TerminalPage> {
     }
     final cols = math.max(1, constraints.maxWidth ~/ cell.width);
     final rows = math.max(1, viewportHeight ~/ cell.height);
+    final keyboardClosedRows = _keyboardClosedRows(
+      constraints.maxWidth,
+      cell,
+      viewportHeight,
+      keyboardInset,
+    );
     final viewportChanged = _lastViewportSize != (cols, rows);
     _lastViewportSize = (cols, rows);
-    final update = _sizePolicy.onViewport(cols: cols, rows: rows);
+    final update = _sizePolicy.onViewport(
+      cols: cols,
+      rows: rows,
+      keyboardClosedRows: keyboardClosedRows,
+    );
     final terminalChanged = _syncTerminalSize(notify: false);
     if (widget.remote.connected) {
       if (!_attached) {
@@ -326,6 +341,31 @@ class _TerminalPageState extends State<TerminalPage> {
     if ((viewportChanged || terminalChanged) && _followBottom) {
       _scheduleScrollToBottom();
     }
+  }
+
+  /// The rows the terminal has with the on-screen keyboard closed.
+  ///
+  /// Measured exactly while the keyboard is closed and kept for that width and
+  /// cell; with the keyboard up and nothing measured yet, the keyboard's
+  /// height is added back. The composing strip only shows with the keyboard
+  /// up, so a measurement taken while it shows is never kept.
+  int _keyboardClosedRows(
+    double width,
+    Size cell,
+    double viewportHeight,
+    double keyboardInset,
+  ) {
+    final known = _closedRows;
+    final composing = _composing != null && _composing!.isNotEmpty;
+    if (keyboardInset <= 0 && !composing) {
+      final rows = math.max(1, viewportHeight ~/ cell.height);
+      _closedRows = (width: width, cell: cell, rows: rows);
+      return rows;
+    }
+    if (known != null && known.width == width && known.cell == cell) {
+      return known.rows;
+    }
+    return math.max(1, (viewportHeight + keyboardInset) ~/ cell.height);
   }
 
   void _onServerRows(int rows) {
@@ -451,8 +491,13 @@ class _TerminalPageState extends State<TerminalPage> {
   Widget build(BuildContext context) {
     final reconnecting = _ended == null && !widget.remote.connected;
     // Read first, so the page rebuilds when the keyboard comes and goes.
-    final keyboardOpen =
-        MediaQuery.viewInsetsOf(context).bottom > 0 && _focus.hasFocus;
+    final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
+    final keyboardOpen = viewInsets > 0 && _focus.hasFocus;
+    // The keyboard covers the bottom safe area, which comes back when it closes.
+    final keyboardInset = math.max(
+      0.0,
+      viewInsets - MediaQuery.viewPaddingOf(context).bottom,
+    );
     final style = terminalStyle(_font, _fontSize);
     final textScaler = MediaQuery.textScalerOf(context);
     final banner = reconnecting ? null : _ended ?? _controlBanner();
@@ -507,7 +552,13 @@ class _TerminalPageState extends State<TerminalPage> {
                   onNotification: _onScrollNotification,
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      _layoutViewport(context, constraints, style, textScaler);
+                      _layoutViewport(
+                        context,
+                        constraints,
+                        style,
+                        textScaler,
+                        keyboardInset,
+                      );
                       return TerminalView(
                         _terminal,
                         controller: _controller,

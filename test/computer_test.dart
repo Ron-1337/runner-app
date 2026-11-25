@@ -956,6 +956,43 @@ void main() {
   );
 
   testWidgets(
+    'opened with the keyboard up, attaches with the keyboard-closed rows and '
+    'closing the keyboard the first time reports nothing',
+    (tester) async {
+      // Closed-keyboard size first, for comparison.
+      final closed = await open(tester);
+      await tester.tap(find.text('Fix the build'));
+      await tester.pumpAndSettle();
+      final closedRows = closed.of('attach').single['rows'] as int;
+      await tester.pumpWidget(const SizedBox());
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      addTearDown(tester.view.resetViewInsets);
+      final core = await open(tester);
+      await tester.tap(find.text('Fix the build'));
+      await tester.pumpAndSettle();
+      final attach = core.of('attach').single;
+      expect(attach['rows'], closedRows);
+      core.push({
+        'type': 'resized',
+        'session': 's1',
+        'seq': 0,
+        'cols': attach['cols'],
+        'rows': closedRows,
+        'controller': {'kind': 'you'},
+      });
+      await tester.pumpAndSettle();
+
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(core.of('viewport'), isEmpty);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      await tester.pumpAndSettle();
+      expect(core.of('viewport'), isEmpty);
+    },
+  );
+
+  testWidgets(
     'scrolls to the bottom when responses arrive, unless scrolled up',
     (tester) async {
       final core = await open(tester);
