@@ -1,3 +1,5 @@
+import 'package:xterm/xterm.dart';
+
 /// Rewrites terminal output that xterm.dart misreads as text styles.
 ///
 /// xterm.dart handles every `CSI … m` as SGR, whatever its prefix, and drops
@@ -88,4 +90,32 @@ String? normalizeSgr(String params) {
     }
   }
   return out.isEmpty ? null : out.join(';');
+}
+
+final _cursorQuery = RegExp(r'\x1b\[(\??)6n');
+
+/// Writes [text] to [terminal], answering cursor position queries itself.
+///
+/// xterm.dart answers `CSI 6 n` with a 0-based row and column, so a program
+/// that lays itself out from the answer (an agent's inline view) draws one row
+/// up and one column left, and leaves its old top line behind. This answers
+/// 1-based, at the point in the output where the query was asked, and keeps
+/// the query from xterm.dart. [SgrFilter] holds a query split across chunks.
+void writeAnsweringCursorQueries(
+  Terminal terminal,
+  String text,
+  void Function(String) reply,
+) {
+  if (!text.contains('6n')) {
+    terminal.write(text);
+    return;
+  }
+  var start = 0;
+  for (final match in _cursorQuery.allMatches(text)) {
+    terminal.write(text.substring(start, match.start));
+    final buffer = terminal.buffer;
+    reply('\x1b[${match[1]}${buffer.cursorY + 1};${buffer.cursorX + 1}R');
+    start = match.end;
+  }
+  terminal.write(text.substring(start));
 }

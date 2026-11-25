@@ -70,7 +70,7 @@ Map<String, Object?> knownDeviceInfo() =>
           ? 'android'
           : Platform.operatingSystem,
       'osVersion': Platform.operatingSystemVersion,
-      'appVersion': versionLabel('0.1.3'),
+      'appVersion': versionLabel('0.1.4'),
     };
 
 Map<String, Object?>? _known;

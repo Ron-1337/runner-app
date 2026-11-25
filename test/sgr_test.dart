@@ -41,4 +41,31 @@ void main() {
     expect(filter.apply('d\x1b'), 'd');
     expect(filter.apply('[2Je'), '\x1b[2Je');
   });
+
+  test(
+    'cursor position queries are answered 1-based, where they were asked',
+    () {
+      final answers = <String>[];
+      final xterm = <String>[];
+      final terminal = Terminal(onOutput: xterm.add)..resize(10, 5);
+      writeAnsweringCursorQueries(
+        terminal,
+        'ab\x1b[6n\r\n1234567890\x1b[6ncd\x1b[?6n',
+        answers.add,
+      );
+      expect(answers, ['\x1b[1;3R', '\x1b[2;10R', '\x1b[?3;3R']);
+      expect(xterm, isEmpty, reason: 'xterm.dart never sees the query');
+      expect(terminal.buffer.lines[2].toString().trim(), 'cd');
+    },
+  );
+
+  test('a cursor query split across chunks is answered once', () {
+    final filter = SgrFilter();
+    final answers = <String>[];
+    final terminal = Terminal(onOutput: (_) {})..resize(10, 5);
+    for (final chunk in ['xy\x1b[', '6', 'n']) {
+      writeAnsweringCursorQueries(terminal, filter.apply(chunk), answers.add);
+    }
+    expect(answers, ['\x1b[1;3R']);
+  });
 }

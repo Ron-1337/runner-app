@@ -829,4 +829,244 @@ void main() {
     await tester.pump();
     expect(typed().last, '\x1b[Z');
   });
+
+  testWidgets(
+    'stops reporting row changes when server rows exceed keyboard-closed rows, '
+    'but still reports column changes and keeps scrolled to the bottom',
+    (tester) async {
+      final core = await open(tester);
+      await tester.tap(find.text('Fix the build'));
+      await tester.pumpAndSettle();
+
+      // First connection still attaches with the local viewport size.
+      final attach = core.of('attach').single;
+      final initialCols = attach['cols'] as int;
+      final initialRows = attach['rows'] as int;
+      expect(attach['control'], 'take');
+      expect(initialCols, greaterThan(0));
+      expect(initialRows, greaterThan(0));
+
+      // Server returns far more rows than fit even with the keyboard closed.
+      final serverRows = initialRows + 50;
+      final lines = [
+        for (var i = 1; i <= serverRows; i++) 'line $i',
+      ].join('\r\n');
+      core.push({
+        'type': 'snapshot',
+        'session': 's1',
+        'seq': 0,
+        'cols': initialCols,
+        'rows': serverRows,
+        'data': base64Encode(utf8.encode(lines)),
+        'more': false,
+      });
+      core.push({
+        'type': 'resized',
+        'session': 's1',
+        'seq': 1,
+        'cols': initialCols,
+        'rows': serverRows,
+        'controller': {'kind': 'you'},
+      });
+      await tester.pumpAndSettle();
+
+      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      expect(view.terminal.viewHeight, serverRows);
+      final scroll = view.scrollController!;
+      expect(scroll.hasClients, isTrue);
+      expect(scroll.position.maxScrollExtent, greaterThan(0));
+      expect(
+        scroll.position.pixels,
+        closeTo(scroll.position.maxScrollExtent, 1.0),
+        reason: 'defaults to the bottom after receiving server output',
+      );
+
+      // Opening and closing the on-screen keyboard changes only rows: no viewport sent.
+      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(core.of('viewport'), isEmpty);
+      expect(
+        scroll.position.pixels,
+        closeTo(scroll.position.maxScrollExtent, 1.0),
+      );
+
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(core.of('viewport'), isEmpty);
+
+      // Changing font size changes columns: viewport IS sent with new cols and serverRows.
+      await tester.tap(find.byKey(const Key('terminalSettings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('fontLarger')));
+      await tester.tap(find.byKey(const Key('fontLarger')));
+      await tester.pumpAndSettle();
+      final viewports = core.of('viewport');
+      expect(viewports, isNotEmpty);
+      final lastViewport = viewports.last;
+      expect(lastViewport['cols'], lessThan(initialCols));
+      expect(lastViewport['rows'], serverRows);
+    },
+  );
+
+  testWidgets(
+    'does not report the keyboard shrinking the rows below the server, '
+    'but reports rows growing past it',
+    (tester) async {
+      final core = await open(tester);
+      await tester.tap(find.text('Fix the build'));
+      await tester.pumpAndSettle();
+
+      final attach = core.of('attach').single;
+      final initialCols = attach['cols'] as int;
+      final initialRows = attach['rows'] as int;
+      // The host sizes the PTY to the phone on attach.
+      core.push({
+        'type': 'resized',
+        'session': 's1',
+        'seq': 0,
+        'cols': initialCols,
+        'rows': initialRows,
+        'controller': {'kind': 'you'},
+      });
+      await tester.pumpAndSettle();
+
+      // Opening the keyboard leaves the phone with fewer rows than the
+      // server: nothing is sent and the terminal keeps the server's rows.
+      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      addTearDown(tester.view.resetViewInsets);
+      await tester.pumpAndSettle();
+      expect(core.of('viewport'), isEmpty);
+      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      expect(view.terminal.viewHeight, initialRows);
+
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(core.of('viewport'), isEmpty);
+
+      // A smaller font gives the phone more rows than the server: reported.
+      await tester.tap(find.byKey(const Key('terminalSettings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('fontSmaller')));
+      await tester.pumpAndSettle();
+      final grown = core.of('viewport').last;
+      expect(grown['cols'], greaterThan(initialCols));
+      expect(grown['rows'], greaterThan(initialRows));
+    },
+  );
+
+  testWidgets(
+    'opened with the keyboard up, attaches with the keyboard-closed rows and '
+    'closing the keyboard the first time reports nothing',
+    (tester) async {
+      // Closed-keyboard size first, for comparison.
+      final closed = await open(tester);
+      await tester.tap(find.text('Fix the build'));
+      await tester.pumpAndSettle();
+      final closedRows = closed.of('attach').single['rows'] as int;
+      await tester.pumpWidget(const SizedBox());
+
+      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      addTearDown(tester.view.resetViewInsets);
+      final core = await open(tester);
+      await tester.tap(find.text('Fix the build'));
+      await tester.pumpAndSettle();
+      final attach = core.of('attach').single;
+      expect(attach['rows'], closedRows);
+      core.push({
+        'type': 'resized',
+        'session': 's1',
+        'seq': 0,
+        'cols': attach['cols'],
+        'rows': closedRows,
+        'controller': {'kind': 'you'},
+      });
+      await tester.pumpAndSettle();
+
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(core.of('viewport'), isEmpty);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+      await tester.pumpAndSettle();
+      expect(core.of('viewport'), isEmpty);
+    },
+  );
+
+  testWidgets(
+    'scrolls to the bottom when responses arrive, unless scrolled up',
+    (tester) async {
+      final core = await open(tester);
+      await tester.tap(find.text('Fix the build'));
+      await tester.pumpAndSettle();
+
+      final attach = core.of('attach').single;
+      final cols = attach['cols'] as int;
+      final rows = attach['rows'] as int;
+      final history = [
+        for (var i = 1; i <= rows + 40; i++) 'history $i',
+      ].join('\r\n');
+      core.push({
+        'type': 'snapshot',
+        'session': 's1',
+        'seq': 0,
+        'cols': cols,
+        'rows': rows,
+        'data': base64Encode(utf8.encode(history)),
+        'more': false,
+      });
+      await tester.pumpAndSettle();
+
+      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      final scroll = view.scrollController!;
+      expect(scroll.position.maxScrollExtent, greaterThan(0));
+      expect(
+        scroll.position.pixels,
+        closeTo(scroll.position.maxScrollExtent, 1.0),
+      );
+
+      // Live output keeps the terminal at the bottom.
+      core.push({
+        'type': 'output',
+        'session': 's1',
+        'seq': 1,
+        'data': base64Encode(utf8.encode('\r\nmore 1\r\nmore 2\r\nmore 3')),
+      });
+      await tester.pumpAndSettle();
+      expect(
+        scroll.position.pixels,
+        closeTo(scroll.position.maxScrollExtent, 1.0),
+      );
+
+      // Manually scrolling up stays where the user scrolled during live output.
+      await tester.drag(find.byType(TerminalView), const Offset(0, 300));
+      await tester.pumpAndSettle();
+      final scrolledUp = scroll.position.pixels;
+      expect(scrolledUp, lessThan(scroll.position.maxScrollExtent - 10));
+
+      core.push({
+        'type': 'output',
+        'session': 's1',
+        'seq': 2,
+        'data': base64Encode(utf8.encode('\r\nbackground line')),
+      });
+      await tester.pumpAndSettle();
+      expect(scroll.position.pixels, closeTo(scrolledUp, 1.0));
+
+      // A fresh snapshot returns to the bottom by default.
+      core.push({
+        'type': 'snapshot',
+        'session': 's1',
+        'seq': 3,
+        'cols': cols,
+        'rows': rows,
+        'data': base64Encode(utf8.encode(history)),
+        'more': false,
+      });
+      await tester.pumpAndSettle();
+      expect(
+        scroll.position.pixels,
+        closeTo(scroll.position.maxScrollExtent, 1.0),
+      );
+    },
+  );
 }
