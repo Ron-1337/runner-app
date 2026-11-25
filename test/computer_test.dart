@@ -910,8 +910,8 @@ void main() {
   );
 
   testWidgets(
-    'still reports row changes normally when server rows do not exceed '
-    'keyboard-closed rows',
+    'does not report the keyboard shrinking the rows below the server, '
+    'but reports rows growing past it',
     (tester) async {
       final core = await open(tester);
       await tester.tap(find.text('Fix the build'));
@@ -920,6 +920,7 @@ void main() {
       final attach = core.of('attach').single;
       final initialCols = attach['cols'] as int;
       final initialRows = attach['rows'] as int;
+      // The host sizes the PTY to the phone on attach.
       core.push({
         'type': 'resized',
         'session': 's1',
@@ -930,20 +931,27 @@ void main() {
       });
       await tester.pumpAndSettle();
 
-      // Opening the keyboard reports the smaller row count.
+      // Opening the keyboard leaves the phone with fewer rows than the
+      // server: nothing is sent and the terminal keeps the server's rows.
       tester.view.viewInsets = const FakeViewPadding(bottom: 600);
       addTearDown(tester.view.resetViewInsets);
       await tester.pumpAndSettle();
-      final shrunk = core.of('viewport').last;
-      expect(shrunk['cols'], initialCols);
-      expect(shrunk['rows'], lessThan(initialRows));
+      expect(core.of('viewport'), isEmpty);
+      final view = tester.widget<TerminalView>(find.byType(TerminalView));
+      expect(view.terminal.viewHeight, initialRows);
 
-      // Closing the keyboard reports the restored row count.
       tester.view.resetViewInsets();
       await tester.pumpAndSettle();
-      final restored = core.of('viewport').last;
-      expect(restored['cols'], initialCols);
-      expect(restored['rows'], initialRows);
+      expect(core.of('viewport'), isEmpty);
+
+      // A smaller font gives the phone more rows than the server: reported.
+      await tester.tap(find.byKey(const Key('terminalSettings')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('fontSmaller')));
+      await tester.pumpAndSettle();
+      final grown = core.of('viewport').last;
+      expect(grown['cols'], greaterThan(initialCols));
+      expect(grown['rows'], greaterThan(initialRows));
     },
   );
 

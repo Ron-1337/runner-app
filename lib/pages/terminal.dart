@@ -297,7 +297,6 @@ class _TerminalPageState extends State<TerminalPage> {
     BoxConstraints constraints,
     TerminalStyle style,
     TextScaler textScaler,
-    double keyboardInset,
   ) {
     if (!constraints.hasBoundedWidth || !constraints.hasBoundedHeight) return;
     final cell = _measureCellSize(style, textScaler);
@@ -309,25 +308,9 @@ class _TerminalPageState extends State<TerminalPage> {
     }
     final cols = math.max(1, constraints.maxWidth ~/ cell.width);
     final rows = math.max(1, viewportHeight ~/ cell.height);
-    final composing = _composing != null && _composing!.isNotEmpty;
-    final int keyboardClosedRows;
-    if (composing &&
-        _sizePolicy.keyboardClosedRows != null &&
-        _lastViewportSize?.$1 == cols) {
-      keyboardClosedRows = _sizePolicy.keyboardClosedRows!;
-    } else {
-      keyboardClosedRows = math.max(
-        1,
-        (viewportHeight + keyboardInset) ~/ cell.height,
-      );
-    }
     final viewportChanged = _lastViewportSize != (cols, rows);
     _lastViewportSize = (cols, rows);
-    final update = _sizePolicy.onViewport(
-      cols: cols,
-      rows: rows,
-      keyboardClosedRows: keyboardClosedRows,
-    );
+    final update = _sizePolicy.onViewport(cols: cols, rows: rows);
     final terminalChanged = _syncTerminalSize(notify: false);
     if (widget.remote.connected) {
       if (!_attached) {
@@ -461,10 +444,8 @@ class _TerminalPageState extends State<TerminalPage> {
   Widget build(BuildContext context) {
     final reconnecting = _ended == null && !widget.remote.connected;
     // Read first, so the page rebuilds when the keyboard comes and goes.
-    final viewInsetsBottom = MediaQuery.viewInsetsOf(context).bottom;
-    final viewPaddingBottom = MediaQuery.viewPaddingOf(context).bottom;
-    final keyboardInset = math.max(0.0, viewInsetsBottom - viewPaddingBottom);
-    final keyboardOpen = viewInsetsBottom > 0 && _focus.hasFocus;
+    final keyboardOpen =
+        MediaQuery.viewInsetsOf(context).bottom > 0 && _focus.hasFocus;
     final style = terminalStyle(_font, _fontSize);
     final textScaler = MediaQuery.textScalerOf(context);
     final banner = reconnecting ? null : _ended ?? _controlBanner();
@@ -519,13 +500,7 @@ class _TerminalPageState extends State<TerminalPage> {
                   onNotification: _onScrollNotification,
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      _layoutViewport(
-                        context,
-                        constraints,
-                        style,
-                        textScaler,
-                        keyboardInset,
-                      );
+                      _layoutViewport(context, constraints, style, textScaler);
                       return TerminalView(
                         _terminal,
                         controller: _controller,
