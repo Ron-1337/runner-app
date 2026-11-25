@@ -107,7 +107,7 @@ class _TerminalPageState extends State<TerminalPage> {
     // Output arrives in chunks that can split a UTF-8 character.
     _decoder = const Utf8Decoder(
       allowMalformed: true,
-    ).startChunkedConversion(_TerminalSink(_terminal, _mouse));
+    ).startChunkedConversion(_TerminalSink(_terminal, _mouse, _reply));
     _terminal.onOutput = _input;
     _events = widget.remote.pushes.listen(_onEvent);
     widget.remote.addListener(_onState);
@@ -402,6 +402,13 @@ class _TerminalPageState extends State<TerminalPage> {
     if (!_live || _controllerKind != 'you') return;
     _followBottom = true;
     _scheduleScrollToBottom();
+    _reply(data);
+  }
+
+  /// Sends [data] to the session as input, without moving the view: the
+  /// terminal's own answers to the program's queries.
+  void _reply(String data) {
+    if (!_live || _controllerKind != 'you') return;
     _send({
       'type': 'input',
       'session': widget.session,
@@ -559,16 +566,17 @@ class _TerminalPageState extends State<TerminalPage> {
 }
 
 class _TerminalSink implements Sink<String> {
-  _TerminalSink(this.terminal, this.mouse);
+  _TerminalSink(this.terminal, this.mouse, this.reply);
   final Terminal terminal;
   final MouseModes mouse;
+  final ValueChanged<String> reply;
   final _styles = SgrFilter();
 
   @override
   void add(String data) {
     final text = _styles.apply(data);
     mouse.scan(text);
-    terminal.write(text);
+    writeAnsweringCursorQueries(terminal, text, reply);
   }
 
   @override
